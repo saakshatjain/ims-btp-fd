@@ -26,7 +26,7 @@ class RAGSearch:
         self.llm = ChatGroq(groq_api_key=groq_api_key, model_name=llm_model)
         print(f"[INFO] Initialized LLM: {llm_model}")
 
-    def _call_retriever(self, query: str, prefetch_k: int = 20):
+    def _call_retriever(self, query: str, prefetch_k: int = 30):
         headers = {
             "api-key": self.retriever_api_key,
             "Content-Type": "application/json"
@@ -94,7 +94,7 @@ class RAGSearch:
             return response.get("text") or response.get("output") or str(response)
         return str(response)
 
-    def search_and_generate(self, query: str, top_k: int = 3, prefetch_k: int = 20) -> str:
+    def search_and_generate(self, query: str, top_k: int = 3, prefetch_k: int = 30) -> str:
         # 1) Call retriever
         try:
             data = self._call_retriever(query, prefetch_k=prefetch_k)

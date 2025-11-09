@@ -24,7 +24,7 @@ def query_rag(payload: dict):
         return {"error": "Query cannot be empty."}
 
     print(f"[INFO] Received query: {query}")
-    answer = rag.search_and_generate(query, top_k=3, prefetch_k=20)
+    answer = rag.search_and_generate(query, top_k=3, prefetch_k=30)
 
     return {
         "query": query,
