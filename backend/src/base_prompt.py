@@ -19,13 +19,12 @@ Your job:
 4. Do NOT add or assume anything beyond the context.
 5. If the context doesn’t answer the question, reply exactly with:
    "I don't know based on the available notices."
-
+6. Dont add any however , note after mentioning sources 
 Format your answer as:
 
-Answer:
 <complete factual answer>
 
-Sources: <filename> (<notice_id>)
+Sources: notice links
 
 ---
 
