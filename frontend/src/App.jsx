@@ -59,11 +59,12 @@ export default function ChatFrontend() {
   function stripFilenamesBeforeLinks(raw) {
     if (!raw) return raw;
     // Remove occurrences like `something.pdf, https://...` so filenames don't show before urls
-    return raw.replace(/\b[\w\-\.]{3,}\.pdf\b\s*,?\s*(?=https?:\/\/)/gi, "");
+    return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
   }
 
   function cleanLink(url) {
     try {
+      if (url.includes("token=")) return url;
       const u = new URL(url);
       // keep only origin + pathname (strip query + fragment)
       return u.origin + u.pathname;
