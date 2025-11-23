@@ -138,24 +138,32 @@ class RAGSearch:
             return response.get("text") or response.get("output") or str(response)
         return str(response)
 
+<<<<<<< HEAD
     # -------------------------
     # Main flow
     # -------------------------
     def search_and_generate(self, query: str, top_k: int = 3, prefetch_k: int = 50) -> str:
+=======
+    def search_and_generate(self, query: str, top_k: int = 3, prefetch_k: int = 30) -> dict:
+>>>>>>> 58d7f4f (Evaluation Testing Script)
         # 1) Call retriever
         try:
             data = self._call_retriever(query, prefetch_k=prefetch_k)
         except Exception as e:
-            return f"[ERROR] Retriever call failed: {e}"
+            return {"answer": f"[ERROR] Retriever call failed: {e}", "sources": []}
 
         chunks = data.get("chunks", []) if isinstance(data, dict) else []
         if not chunks:
-            return "No relevant documents found."
+            return {"answer": "No relevant documents found.", "sources": []}
 
         # 2) Select top_k chunks (by similarity) - enforces MAX_CONTEXT_CHARS
         selected = self._select_chunks(chunks, top_k=top_k)
         if not selected:
+<<<<<<< HEAD
             selected = chunks[:top_k]
+=======
+            return {"answer": "No relevant documents found after selection.", "sources": []}
+>>>>>>> 58d7f4f (Evaluation Testing Script)
 
         # Debug log retrieved chunks (call this to inspect)
         self.debug_log_chunks(selected)
@@ -168,6 +176,7 @@ class RAGSearch:
             answer = self._call_llm(prompt)
             return answer.strip()
         except Exception as e:
+<<<<<<< HEAD
             msg = str(e)
             # if model complains about context length, attempt a fallback by stripping notice_ocr
             if "context_length" in msg or "reduce the length" in msg.lower():
@@ -183,3 +192,8 @@ class RAGSearch:
                     return f"[ERROR] LLM call failed after truncation: {e2}"
             return f"[ERROR] LLM call failed: {e}"
     
+=======
+            return {"answer": f"[ERROR] LLM call failed: {e}", "sources": selected}
+
+        return {"answer": answer.strip(), "sources": selected}
+>>>>>>> 58d7f4f (Evaluation Testing Script)

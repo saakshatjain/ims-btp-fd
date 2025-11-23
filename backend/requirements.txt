@@ -4,3 +4,9 @@ langchain
 langchain-groq
 fastapi
 uvicorn
+ragas
+datasets
+sentence-transformers
+pandas
+streamlit
+plotly
