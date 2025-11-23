@@ -1,19 +1,20 @@
-import React, { useState, useRef } from "react";
-
+import React, { useState, useRef, useEffect } from "react";
 
 const API_URL = "http://127.0.0.1:8000/api/query";
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState([]); 
+  const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef(null);
+  const [copiedLink, setCopiedLink] = useState(null);
+
+  /* ---------------------- helpers ---------------------- */
 
   function extractLinksFromRaw(raw) {
     if (!raw) return [];
     const links = [];
 
-    // 1) Markdown-style links: [label](https://...)
     const mdRegex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
     let m;
     while ((m = mdRegex.exec(raw)) !== null) {
@@ -25,19 +26,17 @@ export default function ChatFrontend() {
       }
     }
 
-    // 2) Plain URLs (http/https)
     const urlRegex = /https?:\/\/[^\s)]+/gi;
     while ((m = urlRegex.exec(raw)) !== null) {
       const url = m[0];
       if (!links.includes(url)) links.push(url);
     }
 
-    // 3) Fallback: words that start with http (very conservative)
     if (links.length === 0 && raw) {
       const words = raw.split(/\s+/);
       for (const w of words) {
         if (w.toLowerCase().startsWith("http")) {
-          const clean = w.replace(/[",.;:]*$/, ""); // trim trailing punctuation
+          const clean = w.replace(/[",.;:]*$/, "");
           if (!links.includes(clean)) links.push(clean);
         }
       }
@@ -45,59 +44,156 @@ export default function ChatFrontend() {
 
     return links;
   }
+  function cleanAndUniqueLinks(rawLinks) {
+  if (!rawLinks?.length) return [];
 
-  function stripSourcesBlock(raw) {
-    if (!raw) return "";
-    // Cut off at the first occurrence of a line that begins with 'Sources:' (case-insensitive)
-    const idx = raw.search(/\n\s*Sources\s*:/i);
-    if (idx >= 0) {
-      return raw.slice(0, idx).trim();
+  const unique = new Map();
+
+  rawLinks.forEach((url) => {
+    // Extract the base link (remove ? and after)
+    const base = url.split("?")[0];
+
+    // Only save first occurrence
+    if (!unique.has(base)) {
+      unique.set(base, url);
     }
-    return raw.trim();
-  }
+  });
 
-  function stripFilenamesBeforeLinks(raw) {
+  return Array.from(unique.values());
+}
+
+
+  // Normalize and sanitize links:
+  // - trim trailing punctuation
+  // - ensure protocol
+  // - ensure download= has a value (add download=source.pdf if empty)
+  // - return normalized absolute href
+  function normalizeLink(raw) {
     if (!raw) return raw;
-    // Remove occurrences like `something.pdf, https://...` so filenames don't show before urls
-    return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
-  }
+    // trim whitespace and trailing punctuation characters
+    let s = String(raw).trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
+    // remove enclosing <...> if present
+    if (s.startsWith("<") && s.endsWith(">")) s = s.slice(1, -1);
 
-  function cleanLink(url) {
+    // remove trailing punctuation often included accidentally
+    s = s.replace(/[\u2014\u2013]+$/, ""); // em/en dash
+    s = s.replace(/[),.?!;:]+$/g, "");
+
+    // if missing scheme, try adding http:
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) {
+      s = "https://" + s;
+    }
+
     try {
-      if (url.includes("token=")) return url;
-      const u = new URL(url);
-      // keep only origin + pathname (strip query + fragment)
-      return u.origin + u.pathname;
-    } catch (e) {
-      return url.split("?")[0];
+      const u = new URL(s);
+
+      // handle download= with empty value (e.g., ?download= or &download=)
+      if (u.searchParams.has("download")) {
+        const val = u.searchParams.get("download");
+        if (val === "" || val == null) {
+          u.searchParams.set("download", "source.pdf");
+        }
+      } else {
+        // handle weird cases where string literally ends with 'download='
+        if (/download=$/.test(s)) {
+          u.searchParams.set("download", "source.pdf");
+        }
+      }
+
+      // if path ends with 'download' with no file, append '/source.pdf'
+      if (u.pathname && /\/download\/?$/.test(u.pathname)) {
+        if (!u.pathname.endsWith("/")) {
+          u.pathname = u.pathname + "/";
+        }
+        u.pathname = u.pathname + "source.pdf";
+      }
+
+      // final normalized href
+      return u.href;
+    } catch (err) {
+      // last-resort cleanup: trim and return original-ish trimmed
+      const cleaned = s.replace(/[",]+$/g, "");
+      return cleaned;
     }
   }
 
-  async function sendQuery(e) {
-    e && e.preventDefault();
-    if (!query.trim()) return;
+  function shortenUrl(url) {
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, "");
+      const path = u.pathname === "/" ? "" : u.pathname;
+      const truncatedPath = path.length > 28 ? path.slice(0, 20) + "…" + path.slice(-6) : path;
+      const queryHint = u.search ? " [q]" : "";
+      return `${host}${truncatedPath}${queryHint}`;
+    } catch (e) {
+      return url.length > 40 ? url.slice(0, 36) + "…" : url;
+    }
+  }
 
-    const userMsg = { id: Date.now() + "_u", role: "user", text: query.trim(), links: [] };
+  function domainInitials(url) {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, "");
+      const parts = host.split(".");
+      const meaningful = parts
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0]?.toUpperCase() || "")
+        .join("");
+      return meaningful || host.slice(0, 2).toUpperCase();
+    } catch {
+      return "LN";
+    }
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedLink(text);
+      setTimeout(() => setCopiedLink(null), 1400);
+      console.log("Copied:", text);
+    } catch (e) {
+      console.error("Copy failed", e);
+    }
+  }
+
+  /* ---------------------- networking / submission ---------------------- */
+
+  async function submit(text) {
+    const trimmed = text?.trim();
+    if (!trimmed) return;
+    const userId = Date.now() + "_u";
+    const userMsg = {
+      id: userId,
+      role: "user",
+      text: trimmed,
+      links: [],
+      ts: new Date().toISOString(),
+    };
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
-    setQuery("");
 
     try {
       const resp = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: userMsg.text }),
+        body: JSON.stringify({ query: trimmed }),
       });
 
       if (!resp.ok) {
         const txt = await resp.text();
+        console.log(txt);
         console.error("Backend HTTP error", resp.status, txt);
         setMessages((m) => [
           ...m,
-          { id: Date.now() + "_err", role: "bot", text: "An internal error occurred. Please try again later.", links: [] },
+          {
+            id: Date.now() + "_err",
+            role: "bot",
+            text: "An internal error occurred. Please try again later.",
+            links: [],
+            ts: new Date().toISOString(),
+          },
         ]);
         setLoading(false);
-        scrollToBottom();
         return;
       }
 
@@ -110,94 +206,215 @@ export default function ChatFrontend() {
         rawAnswer = await resp.text();
       }
 
-      // If backend returned an error-like string starting with [ERROR], log it and show friendly message
       if (rawAnswer && rawAnswer.trim().startsWith("[ERROR]")) {
         console.error("Server error:", rawAnswer);
-        setMessages((m) => [...m, { id: Date.now() + "_e", role: "bot", text: "An internal error occurred. Please try again later.", links: [] }]);
+        setMessages((m) => [
+          ...m,
+          {
+            id: Date.now() + "_e",
+            role: "bot",
+            text: "An internal error occurred. Please try again later.",
+            links: [],
+            ts: new Date().toISOString(),
+          },
+        ]);
         setLoading(false);
-        scrollToBottom();
         return;
       }
 
-      // Remove any filenames preceding URLs
       rawAnswer = stripFilenamesBeforeLinks(rawAnswer);
-
-      // visible text (without appended Sources block)
       const visible = stripSourcesBlock(rawAnswer);
 
-      // extract raw links and clean them
-      let links = extractLinksFromRaw(rawAnswer).map(cleanLink);
-      // ensure uniqueness and preserve order
-      links = Array.from(new Set(links));
+      // normalize all extracted links, dedupe, preserve order
+      const rawLinks = extractLinksFromRaw(rawAnswer);
+      const cleanLinks= cleanAndUniqueLinks(rawLinks);
+      const normalized = [];
+      const seen = new Set();
+      for (const rl of cleanLinks) {
+        const n = normalizeLink(rl);
+        if (!seen.has(n)) {
+          seen.add(n);
+          normalized.push(n);
+        }
+      }
 
-      // Build bot message object with a sources toggle state
       setMessages((m) => [
         ...m,
-        { id: Date.now() + "_b", role: "bot", text: visible || (links.length ? "" : "No content."), links, showSources: false },
+        {
+          id: Date.now() + "_b",
+          role: "bot",
+          text: visible || (normalized.length ? "" : "No content."),
+          links: normalized,
+          showSources: false,
+          ts: new Date().toISOString(),
+        },
       ]);
     } catch (err) {
       console.error("Fetch / parsing error:", err);
-      setMessages((m) => [...m, { id: Date.now() + "_err2", role: "bot", text: "An internal error occurred. Please try again later.", links: [] }]);
+      setMessages((m) => [
+        ...m,
+        {
+          id: Date.now() + "_err2",
+          role: "bot",
+          text: "An internal error occurred. Please try again later.",
+          links: [],
+          ts: new Date().toISOString(),
+        },
+      ]);
     } finally {
       setLoading(false);
-      scrollToBottom();
     }
   }
 
-  function toggleSources(index) {
-    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, showSources: !m.showSources } : m)));
+  async function sendQuery(e) {
+    e && e.preventDefault();
+    if (!query.trim()) return;
+    const text = query;
+    setQuery("");
+    await submit(text);
+  }
+
+  function toggleSources(id) {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, showSources: !m.showSources } : m)));
   }
 
   function scrollToBottom() {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       if (containerRef.current) {
         containerRef.current.scrollTop = containerRef.current.scrollHeight;
       }
-    }, 50);
+    });
   }
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length, loading]);
+
+  /* small helper used by rendering to toggle by message object */
+  function toggleSourcesForMessage(m) {
+    toggleSources(m.id);
+  }
+
+  /* ---------------------- render ---------------------- */
 
   return (
     <div style={styles.page}>
       <div style={styles.container}>
-        <header style={styles.header}>IMS CHATBOT</header>
+        <header style={styles.headerRow}>
+          <div style={styles.header}>IMS CHATBOT</div>
+          <div style={styles.headerRight}>
+            <button style={styles.smallBtn} title="Clear chat" onClick={() => setMessages([])}>
+              Clear
+            </button>
+          </div>
+        </header>
+
         <div ref={containerRef} style={styles.chatArea}>
-          {messages.map((m, idx) => (
-            <div key={m.id} style={m.role === "user" ? styles.userBubble : styles.botBubble}>
-              <div style={styles.messageText}>
-                {/* Bot/user text */}
-                {m.text && m.text.split("\n").map((line, i) => (
-                  <p key={i} style={{ margin: "6px 0" }}>{line}</p>
-                ))}
+          {messages.map((m) => (
+            <div
+              key={m.id}
+              style={m.role === "user" ? styles.userBubble : styles.botBubble}
+              aria-live={m.role === "bot" ? "polite" : undefined}
+            >
+              <div style={styles.messageTextBlock}>
+                <div style={styles.messageTextInner}>
+                  {m.text &&
+                    m.text.split("\n").map((line, i) => (
+                      <p key={i} style={{ margin: "6px 0" }}>
+                        {line}
+                      </p>
+                    ))}
+                </div>
 
-                {/* Sources pill + toggled link list */}
-                {m.links && m.links.length > 0 && (
-                  <div style={styles.sourcesBlock}>
-                    <div style={styles.sourcesHeader}>
-                      <span style={styles.sourcesPill}>Sources</span>
-                      <button
-                        onClick={() => toggleSources(idx)}
-                        style={styles.sourcesToggle}
-                        aria-label={`Toggle sources for message ${idx + 1}`}
-                      >
-                        {m.showSources ? "Hide" : `Show (${m.links.length})`}
-                      </button>
-                    </div>
-
-                    {m.showSources && (
-                      <div style={styles.linksContainer}>
-                        {m.links.map((l, i) => (
-                          <a key={i} href={l} target="_blank" rel="noopener noreferrer" style={styles.link}>
-                            <div style={styles.linkLabel}>Notice {i + 1}</div>
-                            <div style={styles.linkUrl}>{l}</div>
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* Timestamp - time only */}
+                <div style={styles.timestampRow}>
+                  <span style={styles.ts}>
+                    {m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                  </span>
+                </div>
               </div>
+
+              {/* Sources UI */}
+              {m.links && m.links.length > 0 && (
+                <div style={styles.sourcesBlock}>
+                  {/* clicking the whole header toggles sources for accessibility */}
+                  <div
+                    style={styles.sourcesHeaderCompact}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSourcesForMessage(m)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") toggleSourcesForMessage(m);
+                    }}
+                    aria-expanded={m.showSources ? "true" : "false"}
+                  >
+                    <span style={styles.sourcesPill}>Sources</span>
+
+                    <div style={styles.sourcesToggleCompact} aria-hidden>
+                      {/* chevron icon: points right when closed, down when open */}
+                      {m.showSources ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+
+                  {m.showSources && (
+                    <div style={styles.linksContainerCompact}>
+                      {m.links.map((l, i) => (
+                        <div key={i} style={styles.linkCard}>
+                          <div style={styles.linkInfo}>
+                            <a
+                              href={l}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={styles.linkTitle}
+                              title={l}
+                            >
+                              {shortenUrl(l)}
+                            </a>
+                          </div>
+
+                          <div style={styles.linkActionsCompact}>
+                            <button
+                              style={styles.iconBtn}
+                              onClick={() => copyToClipboard(l)}
+                              title="Copy URL"
+                              aria-label={`Copy source ${i + 1}`}
+                            >
+                              {copiedLink === l ? (
+                                "✓"
+                              ) : (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                                  <path d="M16 1H4C2.89543 1 2 1.89543 2 3V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                  <rect x="8" y="5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
+
+          {loading && (
+            <div style={styles.botBubble}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={styles.dot} />
+                <div style={styles.dot} />
+                <div style={styles.dot} />
+              </div>
+            </div>
+          )}
         </div>
 
         <form style={styles.form} onSubmit={sendQuery}>
@@ -223,6 +440,24 @@ export default function ChatFrontend() {
   );
 }
 
+/* ---------------------- utils used earlier (kept) ---------------------- */
+
+function stripSourcesBlock(raw) {
+  if (!raw) return "";
+  const idx = raw.search(/\n\s*Sources\s*:/i);
+  if (idx >= 0) {
+    return raw.slice(0, idx).trim();
+  }
+  return raw.trim();
+}
+
+function stripFilenamesBeforeLinks(raw) {
+  if (!raw) return raw;
+  return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
+}
+
+/* ---------------------- styles ---------------------- */
+
 const styles = {
   page: {
     display: "flex",
@@ -242,18 +477,35 @@ const styles = {
     flexDirection: "column",
     overflow: "hidden",
   },
+  headerRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottom: "1px solid rgba(255,255,255,0.04)",
+  },
   header: {
     color: "#fff",
     fontSize: 20,
     padding: "12px 18px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
     fontWeight: 600,
   },
+  headerRight: {
+    paddingRight: 12,
+  },
+  smallBtn: {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.06)",
+    color: "#a8d1ff",
+    padding: "6px 10px",
+    borderRadius: 8,
+    cursor: "pointer",
+  },
+
   chatArea: {
     padding: 16,
     flex: 1,
     overflowY: "auto",
-    maxHeight: "65vh",
+    maxHeight: "68vh",
     display: "flex",
     flexDirection: "column",
     gap: 12,
@@ -278,22 +530,39 @@ const styles = {
     wordBreak: "break-word",
     overflowWrap: "anywhere",
   },
-  messageText: {
+  messageTextBlock: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  messageTextInner: {
     fontSize: 14,
     lineHeight: "1.4",
     maxHeight: "40vh",
     overflowY: "auto",
   },
 
-  /* Sources UI */
+  /* Timestamp */
+  timestampRow: {
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  ts: {
+    fontSize: 11,
+    color: "#99b3cc",
+    opacity: 0.9,
+  },
+
+  /* Sources compact */
   sourcesBlock: {
     marginTop: 10,
   },
-  sourcesHeader: {
+  sourcesHeaderCompact: {
     display: "flex",
     gap: 8,
     alignItems: "center",
     marginBottom: 8,
+    cursor: "pointer",
   },
   sourcesPill: {
     background: "rgba(11,132,255,0.14)",
@@ -303,42 +572,68 @@ const styles = {
     fontSize: 12,
     fontWeight: 600,
   },
-  sourcesToggle: {
+  sourcesToggleCompact: {
     marginLeft: "auto",
     background: "transparent",
-    border: "1px solid rgba(255,255,255,0.06)",
     color: "#a8d1ff",
     padding: "6px 8px",
     borderRadius: 6,
-    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
   },
-
-  linksContainer: {
+  linksContainerCompact: {
     display: "flex",
     flexDirection: "column",
     gap: 8,
   },
-  link: {
-    display: "block",
-    padding: "8px 10px",
-    borderRadius: 6,
-    background: "rgba(255,255,255,0.03)",
-    color: "#9fd1ff",
-    textDecoration: "none",
-    maxWidth: "100%",
-    overflow: "hidden",
+  linkCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    background: "rgba(255,255,255,0.02)",
+    padding: "8px",
+    borderRadius: 8,
   },
-  linkLabel: {
+  domainBadge: {
+    minWidth: 36,
+    minHeight: 36,
+    borderRadius: 8,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(255,255,255,0.04)",
+    color: "#cfeeff",
+    fontWeight: 700,
+    fontSize: 13,
+  },
+  linkInfo: {
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+    flex: 1,
+  },
+  linkTitle: {
     fontSize: 13,
     fontWeight: 700,
-  },
-  linkUrl: {
-    fontSize: 12,
     color: "#cfeeff",
-    opacity: 0.9,
+    textDecoration: "none",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
+  },
+  linkActionsCompact: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+  },
+  iconBtn: {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.05)",
+    color: "#9fd1ff",
+    padding: "6px 8px",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
   },
 
   form: {
@@ -366,5 +661,13 @@ const styles = {
     color: "white",
     cursor: "pointer",
     fontWeight: 600,
+  },
+
+  dot: {
+    width: 8,
+    height: 8,
+    background: "rgba(255,255,255,0.18)",
+    borderRadius: 999,
+    animation: "typing 1s infinite",
   },
 };
