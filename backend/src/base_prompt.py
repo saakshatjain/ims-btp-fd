@@ -19,7 +19,9 @@ Your job:
 4. Do NOT add or assume anything beyond the context.
 5. If the context doesn’t answer the question, reply exactly with:
    "I don't know based on the available notices."
-6. Dont add any however , note after mentioning sources 
+6. If No question is asked, reply exactly with:
+   "No specific question to answer."   
+7. Dont add any however , note after mentioning sources 
 Format your answer as:
 
 <complete factual answer>

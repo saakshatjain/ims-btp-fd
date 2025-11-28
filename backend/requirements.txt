@@ -10,3 +10,6 @@ sentence-transformers
 pandas
 streamlit
 plotly
+supabase
+python-dotenv
+pydantic

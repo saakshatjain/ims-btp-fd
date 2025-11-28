@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
 const API_URL = "http://127.0.0.1:8000/api/query";
+const FEEDBACK_URL = "http://127.0.0.1:8000/api/feedback";
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
@@ -9,29 +10,32 @@ export default function ChatFrontend() {
   const containerRef = useRef(null);
   const [copiedLink, setCopiedLink] = useState(null);
 
-  /* ---------------------- helpers ---------------------- */
+  /* ---------------------- FEEDBACK STATE ---------------------- */
+  const [feedbackOpenFor, setFeedbackOpenFor] = useState(null);
+  const [feedbackDraft, setFeedbackDraft] = useState({
+    answer: null, // 1..5
+    source: null, // 1..5
+    satisfied: null, // boolean
+  });
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+
+  /* ---------------------- Helpers ---------------------- */
 
   function extractLinksFromRaw(raw) {
     if (!raw) return [];
     const links = [];
-
     const mdRegex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
     let m;
     while ((m = mdRegex.exec(raw)) !== null) {
       try {
         const url = m[2];
         if (!links.includes(url)) links.push(url);
-      } catch (e) {
-        console.error("Error extracting markdown link:", e);
-      }
+      } catch (e) { console.error(e); }
     }
-
     const urlRegex = /https?:\/\/[^\s)]+/gi;
     while ((m = urlRegex.exec(raw)) !== null) {
-      const url = m[0];
-      if (!links.includes(url)) links.push(url);
+      if (!links.includes(m[0])) links.push(m[0]);
     }
-
     if (links.length === 0 && raw) {
       const words = raw.split(/\s+/);
       for (const w of words) {
@@ -41,79 +45,37 @@ export default function ChatFrontend() {
         }
       }
     }
-
     return links;
   }
+
   function cleanAndUniqueLinks(rawLinks) {
-  if (!rawLinks?.length) return [];
+    if (!rawLinks?.length) return [];
+    const unique = new Map();
+    rawLinks.forEach((url) => {
+      const base = url.split("?")[0];
+      if (!unique.has(base)) unique.set(base, url);
+    });
+    return Array.from(unique.values());
+  }
 
-  const unique = new Map();
-
-  rawLinks.forEach((url) => {
-    // Extract the base link (remove ? and after)
-    const base = url.split("?")[0];
-
-    // Only save first occurrence
-    if (!unique.has(base)) {
-      unique.set(base, url);
-    }
-  });
-
-  return Array.from(unique.values());
-}
-
-
-  // Normalize and sanitize links:
-  // - trim trailing punctuation
-  // - ensure protocol
-  // - ensure download= has a value (add download=source.pdf if empty)
-  // - return normalized absolute href
   function normalizeLink(raw) {
     if (!raw) return raw;
-    // trim whitespace and trailing punctuation characters
     let s = String(raw).trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
-    // remove enclosing <...> if present
     if (s.startsWith("<") && s.endsWith(">")) s = s.slice(1, -1);
-
-    // remove trailing punctuation often included accidentally
-    s = s.replace(/[\u2014\u2013]+$/, ""); // em/en dash
-    s = s.replace(/[),.?!;:]+$/g, "");
-
-    // if missing scheme, try adding http:
-    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) {
-      s = "https://" + s;
-    }
-
+    s = s.replace(/[\u2014\u2013]+$/, "").replace(/[),.?!;:]+$/g, "");
+    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = "https://" + s;
     try {
       const u = new URL(s);
-
-      // handle download= with empty value (e.g., ?download= or &download=)
-      if (u.searchParams.has("download")) {
-        const val = u.searchParams.get("download");
-        if (val === "" || val == null) {
-          u.searchParams.set("download", "source.pdf");
-        }
-      } else {
-        // handle weird cases where string literally ends with 'download='
-        if (/download=$/.test(s)) {
-          u.searchParams.set("download", "source.pdf");
-        }
+      if (u.searchParams.has("download") && !u.searchParams.get("download")) {
+        u.searchParams.set("download", "source.pdf");
       }
-
-      // if path ends with 'download' with no file, append '/source.pdf'
       if (u.pathname && /\/download\/?$/.test(u.pathname)) {
-        if (!u.pathname.endsWith("/")) {
-          u.pathname = u.pathname + "/";
-        }
-        u.pathname = u.pathname + "source.pdf";
+        if (!u.pathname.endsWith("/")) u.pathname += "/";
+        u.pathname += "source.pdf";
       }
-
-      // final normalized href
       return u.href;
     } catch (err) {
-      // last-resort cleanup: trim and return original-ish trimmed
-      const cleaned = s.replace(/[",]+$/g, "");
-      return cleaned;
+      return s.replace(/[",]+$/g, "");
     }
   }
 
@@ -122,26 +84,10 @@ export default function ChatFrontend() {
       const u = new URL(url);
       const host = u.hostname.replace(/^www\./, "");
       const path = u.pathname === "/" ? "" : u.pathname;
-      const truncatedPath = path.length > 28 ? path.slice(0, 20) + "…" + path.slice(-6) : path;
-      const queryHint = u.search ? " [q]" : "";
-      return `${host}${truncatedPath}${queryHint}`;
+      const truncatedPath = path.length > 20 ? path.slice(0, 15) + "..." : path;
+      return `${host}${truncatedPath}`;
     } catch (e) {
-      return url.length > 40 ? url.slice(0, 36) + "…" : url;
-    }
-  }
-
-  function domainInitials(url) {
-    try {
-      const host = new URL(url).hostname.replace(/^www\./, "");
-      const parts = host.split(".");
-      const meaningful = parts
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((p) => p[0]?.toUpperCase() || "")
-        .join("");
-      return meaningful || host.slice(0, 2).toUpperCase();
-    } catch {
-      return "LN";
+      return url.length > 30 ? url.slice(0, 28) + "..." : url;
     }
   }
 
@@ -150,25 +96,94 @@ export default function ChatFrontend() {
       await navigator.clipboard.writeText(text);
       setCopiedLink(text);
       setTimeout(() => setCopiedLink(null), 1400);
-      console.log("Copied:", text);
-    } catch (e) {
-      console.error("Copy failed", e);
+    } catch (e) { console.error(e); }
+  }
+
+  /* ---------------------- Feedback Helpers ---------------------- */
+
+  function shouldShowFeedback(m) {
+    if (!m || m.role !== "bot") return false;
+    // Removed the "feedbackSubmitted" check here so we can show the "Submitted" badge
+    const txt = (m.text || "").toLowerCase();
+    if (txt.includes("internal error") || txt.includes("i don't know") || txt.includes("specific question to answer")) return false;
+    return true;
+  }
+
+  function openFeedbackPopupFor(m) {
+    setFeedbackOpenFor(m.id);
+    setFeedbackDraft({ answer: null, source: null, satisfied: null });
+  }
+
+  async function submitFeedback(messageObj) {
+    if (!messageObj) return;
+
+    const ans = Number(feedbackDraft.answer);
+    const src = Number(feedbackDraft.source);
+    const sat = feedbackDraft.satisfied;
+
+    if (!ans || ans < 1 || ans > 5) {
+      alert("Please rate the Answer (1–5).");
+      return;
+    }
+    if (!src || src < 1 || src > 5) {
+      alert("Please rate the Sources (1–5).");
+      return;
+    }
+    if (typeof sat !== "boolean") {
+      alert("Please indicate if you are satisfied.");
+      return;
+    }
+
+    const payload = {
+      message_id: messageObj.id,
+      prompt: (() => {
+        const idx = messages.findIndex((x) => x.id === messageObj.id);
+        if (idx > 0) {
+          for (let i = idx - 1; i >= 0; i--) {
+            if (messages[i].role === "user") return messages[i].text;
+          }
+        }
+        return "";
+      })(),
+      response: messageObj.text,
+      links: messageObj.links || [],
+      answer_score: ans,
+      source_score: src,
+      satisfied: sat,
+      comment: null,
+    };
+
+    setFeedbackLoading(true);
+    try {
+      const res = await fetch(FEEDBACK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageObj.id ? { ...m, feedbackSubmitted: true, feedback: payload } : m
+        )
+      );
+      setFeedbackOpenFor(null);
+    } catch (err) {
+      console.error("Feedback failed", err);
+      alert("Failed to submit feedback.");
+    } finally {
+      setFeedbackLoading(false);
     }
   }
 
-  /* ---------------------- networking / submission ---------------------- */
+  /* ---------------------- Networking ---------------------- */
 
   async function submit(text) {
     const trimmed = text?.trim();
     if (!trimmed) return;
     const userId = Date.now() + "_u";
-    const userMsg = {
-      id: userId,
-      role: "user",
-      text: trimmed,
-      links: [],
-      ts: new Date().toISOString(),
-    };
+    const userMsg = { id: userId, role: "user", text: trimmed, links: [], ts: new Date().toISOString() };
+    
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
 
@@ -179,55 +194,24 @@ export default function ChatFrontend() {
         body: JSON.stringify({ query: trimmed }),
       });
 
-      if (!resp.ok) {
-        const txt = await resp.text();
-        console.log(txt);
-        console.error("Backend HTTP error", resp.status, txt);
-        setMessages((m) => [
-          ...m,
-          {
-            id: Date.now() + "_err",
-            role: "bot",
-            text: "An internal error occurred. Please try again later.",
-            links: [],
-            ts: new Date().toISOString(),
-          },
-        ]);
-        setLoading(false);
-        return;
-      }
-
-      const contentType = resp.headers.get("content-type") || "";
+      if (!resp.ok) throw new Error("Backend error");
+      console.log(resp);
       let rawAnswer = "";
+      const contentType = resp.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         const j = await resp.json();
-        rawAnswer = j.answer || j.output || j.text || (typeof j === "string" ? j : JSON.stringify(j));
+        rawAnswer = j.answer || j.output || j.text || JSON.stringify(j);
       } else {
         rawAnswer = await resp.text();
       }
 
-      if (rawAnswer && rawAnswer.trim().startsWith("[ERROR]")) {
-        console.error("Server error:", rawAnswer);
-        setMessages((m) => [
-          ...m,
-          {
-            id: Date.now() + "_e",
-            role: "bot",
-            text: "An internal error occurred. Please try again later.",
-            links: [],
-            ts: new Date().toISOString(),
-          },
-        ]);
-        setLoading(false);
-        return;
-      }
+      if (rawAnswer && rawAnswer.trim().startsWith("[ERROR]")) throw new Error("Server Error");
 
       rawAnswer = stripFilenamesBeforeLinks(rawAnswer);
       const visible = stripSourcesBlock(rawAnswer);
 
-      // normalize all extracted links, dedupe, preserve order
       const rawLinks = extractLinksFromRaw(rawAnswer);
-      const cleanLinks= cleanAndUniqueLinks(rawLinks);
+      const cleanLinks = cleanAndUniqueLinks(rawLinks);
       const normalized = [];
       const seen = new Set();
       for (const rl of cleanLinks) {
@@ -250,11 +234,11 @@ export default function ChatFrontend() {
         },
       ]);
     } catch (err) {
-      console.error("Fetch / parsing error:", err);
+      console.log(err);
       setMessages((m) => [
         ...m,
         {
-          id: Date.now() + "_err2",
+          id: Date.now() + "_err",
           role: "bot",
           text: "An internal error occurred. Please try again later.",
           links: [],
@@ -278,177 +262,249 @@ export default function ChatFrontend() {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, showSources: !m.showSources } : m)));
   }
 
-  function scrollToBottom() {
-    requestAnimationFrame(() => {
-      if (containerRef.current) {
-        containerRef.current.scrollTop = containerRef.current.scrollHeight;
-      }
-    });
-  }
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, loading]);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [messages, loading]);
 
-  /* small helper used by rendering to toggle by message object */
-  function toggleSourcesForMessage(m) {
-    toggleSources(m.id);
-  }
-
-  /* ---------------------- render ---------------------- */
+  /* ---------------------- Render ---------------------- */
 
   return (
     <div style={styles.page}>
+      <style>
+        {`
+          @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes pulse {
+            0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; }
+          }
+        `}
+      </style>
+
       <div style={styles.container}>
         <header style={styles.headerRow}>
-          <div style={styles.header}>IMS CHATBOT</div>
-          <div style={styles.headerRight}>
-            <button style={styles.smallBtn} title="Clear chat" onClick={() => setMessages([])}>
-              Clear
-            </button>
+          <div style={styles.header}>
+            <span style={{color: "#3b82f6"}}>IMS</span> Chatbot
           </div>
+          <button style={styles.clearBtn} onClick={() => setMessages([])}>
+            Clear Chat
+          </button>
         </header>
 
         <div ref={containerRef} style={styles.chatArea}>
+          {messages.length === 0 && (
+            <div style={styles.emptyState}>
+              <h2 style={{color: "#e2e8f0", marginBottom: 8}}>How can I help you?</h2>
+            </div>
+          )}
+
           {messages.map((m) => (
             <div
               key={m.id}
-              style={m.role === "user" ? styles.userBubble : styles.botBubble}
-              aria-live={m.role === "bot" ? "polite" : undefined}
+              style={{
+                ...styles.messageWrapper,
+                justifyContent: m.role === "user" ? "flex-end" : "flex-start",
+              }}
             >
-              <div style={styles.messageTextBlock}>
+              <div style={m.role === "user" ? styles.userBubble : styles.botBubble}>
                 <div style={styles.messageTextInner}>
-                  {m.text &&
-                    m.text.split("\n").map((line, i) => (
-                      <p key={i} style={{ margin: "6px 0" }}>
-                        {line}
-                      </p>
-                    ))}
+                  {m.text && m.text.split("\n").map((line, i) => (
+                    <p key={i} style={{ margin: "4px 0", minHeight: line.trim() ? "auto" : 8 }}>{line}</p>
+                  ))}
                 </div>
-
-                {/* Timestamp - time only */}
-                <div style={styles.timestampRow}>
+                
+                {/* Meta Row: Feedback Button + Timestamp */}
+                <div style={styles.metaRow}>
+                  {shouldShowFeedback(m) && (
+                    <>
+                      {m.feedbackSubmitted ? (
+                        <span style={styles.feedbackSubmitted} title="Feedback submitted">
+                          <span style={{fontSize: "14px", marginRight: "4px"}}>✓</span>
+                          Submitted
+                        </span>
+                      ) : (
+                        <button
+                          style={styles.feedbackBtn}
+                          onClick={() => openFeedbackPopupFor(m)}
+                          title="Provide Feedback"
+                        >
+                          <span style={{fontSize: "14px", marginRight: "3px"}}>✎</span> Feedback
+                        </button>
+                      )}
+                    </>
+                  )}
+                  
                   <span style={styles.ts}>
                     {m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                   </span>
                 </div>
-              </div>
 
-              {/* Sources UI */}
-              {m.links && m.links.length > 0 && (
-                <div style={styles.sourcesBlock}>
-                  {/* clicking the whole header toggles sources for accessibility */}
-                  <div
-                    style={styles.sourcesHeaderCompact}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => toggleSourcesForMessage(m)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") toggleSourcesForMessage(m);
-                    }}
-                    aria-expanded={m.showSources ? "true" : "false"}
-                  >
-                    <span style={styles.sourcesPill}>Sources</span>
-
-                    <div style={styles.sourcesToggleCompact} aria-hidden>
-                      {/* chevron icon: points right when closed, down when open */}
-                      {m.showSources ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      )}
+                {/* Sources Section */}
+                {m.links && m.links.length > 0 && (
+                  <div style={styles.sourcesBlock}>
+                    <div style={styles.separator} />
+                    <div
+                      style={styles.sourcesHeaderCompact}
+                      onClick={() => toggleSources(m.id)}
+                    >
+                      <span style={styles.sourcesLabel}>
+                        Sources ({m.links.length})
+                      </span>
+                      <span style={{ transform: m.showSources ? "rotate(180deg)" : "rotate(0deg)", transition: "0.2s" }}>
+                        ▼
+                      </span>
                     </div>
-                  </div>
 
-                  {m.showSources && (
-                    <div style={styles.linksContainerCompact}>
-                      {m.links.map((l, i) => (
-                        <div key={i} style={styles.linkCard}>
-                          <div style={styles.linkInfo}>
-                            <a
-                              href={l}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={styles.linkTitle}
-                              title={l}
-                            >
+                    {m.showSources && (
+                      <div style={styles.linksGrid}>
+                        {m.links.map((l, i) => (
+                          <div key={i} style={styles.linkCard}>
+                            <a href={l} target="_blank" rel="noopener noreferrer" style={styles.linkTitle} title={l}>
                               {shortenUrl(l)}
                             </a>
-                          </div>
-
-                          <div style={styles.linkActionsCompact}>
                             <button
                               style={styles.iconBtn}
                               onClick={() => copyToClipboard(l)}
                               title="Copy URL"
-                              aria-label={`Copy source ${i + 1}`}
                             >
-                              {copiedLink === l ? (
-                                "✓"
-                              ) : (
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                  <path d="M16 1H4C2.89543 1 2 1.89543 2 3V17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  <rect x="8" y="5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
+                              {copiedLink === l ? "✓" : "❐"}
                             </button>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
 
           {loading && (
-            <div style={styles.botBubble}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <div style={styles.dot} />
-                <div style={styles.dot} />
-                <div style={styles.dot} />
+            <div style={styles.messageWrapper}>
+               <div style={{...styles.botBubble, padding: "12px 20px"}}>
+                <div style={styles.typingIndicator}>
+                  <div style={{...styles.dot, animationDelay: "0s"}} />
+                  <div style={{...styles.dot, animationDelay: "0.2s"}} />
+                  <div style={{...styles.dot, animationDelay: "0.4s"}} />
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        <form style={styles.form} onSubmit={sendQuery}>
-          <input
-            aria-label="Type your question"
-            placeholder={loading ? "Thinking..." : "Type your question here..."}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={styles.input}
-            disabled={loading}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                sendQuery(e);
-              }
-            }}
-          />
-          <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? "..." : "Send"}
-          </button>
-        </form>
+        <div style={styles.inputArea}>
+          <form style={styles.form} onSubmit={sendQuery}>
+            <input
+              placeholder={loading ? "Thinking..." : "Type your question..."}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={styles.input}
+              disabled={loading}
+            />
+            <button type="submit" style={styles.sendButton} disabled={loading || !query.trim()}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </form>
+        </div>
       </div>
+
+      {/* FEEDBACK MODAL */}
+      {feedbackOpenFor && (
+        <div style={styles.modalBackdrop} onClick={() => setFeedbackOpenFor(null)}>
+          <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Feedback</h3>
+              <button style={styles.closeModalBtn} onClick={() => setFeedbackOpenFor(null)}>✕</button>
+            </div>
+            
+            {/* Updated Text */}
+            <p style={styles.modalSub}>Feedback is collected for research and analysis.</p>
+
+            {/* Answer Rating */}
+            <div style={styles.modalSection}>
+              <div style={styles.modalLabelRow}>
+                 <span style={styles.modalLabel}>Answer Quality</span>
+                 <span style={styles.modalLabelNote}>(1 = Poor, 5 = Excellent)</span>
+              </div>
+              <div style={styles.ratingContainer}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    style={feedbackDraft.answer === n ? styles.ratingBtnActive : styles.ratingBtn}
+                    onClick={() => setFeedbackDraft(p => ({ ...p, answer: n }))}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Source Rating */}
+            <div style={styles.modalSection}>
+              <div style={styles.modalLabelRow}>
+                 <span style={styles.modalLabel}>Source Relevance</span>
+                 <span style={styles.modalLabelNote}>(1 = Irrelevant, 5 = Relevant)</span>
+              </div>
+              <div style={styles.ratingContainer}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    style={feedbackDraft.source === n ? styles.ratingBtnActive : styles.ratingBtn}
+                    onClick={() => setFeedbackDraft(p => ({ ...p, source: n }))}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Satisfied Toggle */}
+            <div style={styles.modalSection}>
+              <span style={styles.modalLabel}>Are you satisfied with this result?</span>
+              <div style={styles.satisfiedRow}>
+                <button
+                  style={feedbackDraft.satisfied === true ? styles.satBtnActiveYes : styles.satBtn}
+                  onClick={() => setFeedbackDraft(p => ({ ...p, satisfied: true }))}
+                >
+                  Yes
+                </button>
+                <button
+                  style={feedbackDraft.satisfied === false ? styles.satBtnActiveNo : styles.satBtn}
+                  onClick={() => setFeedbackDraft(p => ({ ...p, satisfied: false }))}
+                >
+                  No
+                </button>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={styles.modalActions}>
+              <button
+                style={styles.feedbackSubmit}
+                onClick={() => submitFeedback(messages.find(x => x.id === feedbackOpenFor))}
+                disabled={feedbackLoading}
+              >
+                {feedbackLoading ? "Sending..." : "Submit Feedback"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ---------------------- utils used earlier (kept) ---------------------- */
+/* ---------------------- Helpers ---------------------- */
 
 function stripSourcesBlock(raw) {
   if (!raw) return "";
   const idx = raw.search(/\n\s*Sources\s*:/i);
-  if (idx >= 0) {
-    return raw.slice(0, idx).trim();
-  }
-  return raw.trim();
+  return idx >= 0 ? raw.slice(0, idx).trim() : raw.trim();
 }
 
 function stripFilenamesBeforeLinks(raw) {
@@ -456,218 +512,380 @@ function stripFilenamesBeforeLinks(raw) {
   return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
 }
 
-/* ---------------------- styles ---------------------- */
+/* ---------------------- Styles ---------------------- */
 
 const styles = {
   page: {
     display: "flex",
     justifyContent: "center",
-    padding: 20,
-    background: "#0b0b0c",
-    minHeight: "100vh",
-    boxSizing: "border-box",
+    alignItems: "center",
+    height: "100vh",
+    background: "linear-gradient(135deg, #0f172a 0%, #020617 100%)",
+    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+    color: "#f1f5f9",
   },
   container: {
-    width: "75%",
-    maxWidth: 980,
-    background: "#0f1720",
-    borderRadius: 12,
-    boxShadow: "0 6px 30px rgba(0,0,0,0.6)",
+    width: "100%",
+    maxWidth: "900px",
+    height: "90vh",
+    background: "#1e293b",
+    borderRadius: "20px",
+    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.05)",
   },
+  
+  /* Header */
   headerRow: {
+    padding: "20px 24px",
+    background: "rgba(15, 23, 42, 0.6)",
+    backdropFilter: "blur(10px)",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
     display: "flex",
-    alignItems: "center",
     justifyContent: "space-between",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
+    alignItems: "center",
+    zIndex: 10,
   },
   header: {
-    color: "#fff",
-    fontSize: 20,
-    padding: "12px 18px",
-    fontWeight: 600,
+    fontSize: "18px",
+    fontWeight: "700",
+    letterSpacing: "-0.025em",
   },
-  headerRight: {
-    paddingRight: 12,
-  },
-  smallBtn: {
+  clearBtn: {
     background: "transparent",
-    border: "1px solid rgba(255,255,255,0.06)",
-    color: "#a8d1ff",
-    padding: "6px 10px",
-    borderRadius: 8,
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#94a3b8",
+    padding: "6px 12px",
+    borderRadius: "6px",
+    fontSize: "12px",
     cursor: "pointer",
+    transition: "all 0.2s",
   },
 
+  /* Chat Area */
   chatArea: {
-    padding: 16,
     flex: 1,
+    padding: "24px",
     overflowY: "auto",
-    maxHeight: "68vh",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: "24px",
   },
+  emptyState: {
+    textAlign: "center",
+    marginTop: "auto",
+    marginBottom: "auto",
+    opacity: 0.8,
+  },
+  messageWrapper: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "flex-end",
+    animation: "slideIn 0.3s ease-out forwards",
+  },
+  
+  /* Bubbles */
   userBubble: {
-    alignSelf: "flex-end",
-    background: "#1f2937",
+    background: "#3b82f6",
     color: "#fff",
-    padding: "10px 14px",
-    borderRadius: 12,
-    maxWidth: "80%",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
+    padding: "12px 18px",
+    borderRadius: "18px 18px 2px 18px",
+    maxWidth: "85%",
+    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    lineHeight: "1.5",
+    fontSize: "15px",
   },
   botBubble: {
-    alignSelf: "flex-start",
-    background: "#0b1220",
-    color: "#e6eef8",
-    padding: "10px 14px",
-    borderRadius: 12,
-    maxWidth: "80%",
-    wordBreak: "break-word",
-    overflowWrap: "anywhere",
-  },
-  messageTextBlock: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
+    background: "#334155",
+    color: "#f1f5f9",
+    padding: "16px",
+    borderRadius: "18px 18px 18px 2px",
+    maxWidth: "85%",
+    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    lineHeight: "1.5",
+    fontSize: "15px",
   },
   messageTextInner: {
-    fontSize: 14,
-    lineHeight: "1.4",
-    maxHeight: "40vh",
-    overflowY: "auto",
+    wordBreak: "break-word",
   },
-
-  /* Timestamp */
-  timestampRow: {
+  metaRow: {
     display: "flex",
-    justifyContent: "flex-end",
+    justifyContent: "space-between", 
+    alignItems: "center",
+    marginTop: "8px",
+    borderTop: "1px solid rgba(255,255,255,0.05)",
+    paddingTop: "6px",
   },
   ts: {
-    fontSize: 11,
-    color: "#99b3cc",
-    opacity: 0.9,
+    fontSize: "10px",
+    opacity: 0.6,
+    marginLeft: "auto", 
+  },
+  feedbackBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#94a3b8",
+    fontSize: "11px",
+    cursor: "pointer",
+    padding: "2px 6px",
+    borderRadius: "4px",
+    display: "flex",
+    alignItems: "center",
+    transition: "color 0.2s, background 0.2s",
+  },
+  /* New style for submitted state */
+  feedbackSubmitted: {
+    color: "#10b981", // Green
+    fontSize: "11px",
+    display: "flex",
+    alignItems: "center",
+    padding: "2px 6px",
+    cursor: "default",
   },
 
-  /* Sources compact */
+  /* Sources */
   sourcesBlock: {
-    marginTop: 10,
+    marginTop: "12px",
+  },
+  separator: {
+    height: "1px",
+    background: "rgba(255,255,255,0.1)",
+    margin: "8px 0",
   },
   sourcesHeaderCompact: {
     display: "flex",
-    gap: 8,
+    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
     cursor: "pointer",
+    padding: "4px 0",
+    color: "#93c5fd",
+    fontSize: "13px",
+    fontWeight: "600",
+    userSelect: "none",
   },
-  sourcesPill: {
-    background: "rgba(11,132,255,0.14)",
-    color: "#0b84ff",
-    padding: "4px 8px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 600,
-  },
-  sourcesToggleCompact: {
-    marginLeft: "auto",
-    background: "transparent",
-    color: "#a8d1ff",
-    padding: "6px 8px",
-    borderRadius: 6,
-    display: "flex",
-    alignItems: "center",
-  },
-  linksContainerCompact: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
+  linksGrid: {
+    display: "grid",
+    gap: "8px",
+    marginTop: "8px",
   },
   linkCard: {
+    background: "rgba(0,0,0,0.2)",
+    padding: "8px 12px",
+    borderRadius: "6px",
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    background: "rgba(255,255,255,0.02)",
-    padding: "8px",
-    borderRadius: 8,
-  },
-  domainBadge: {
-    minWidth: 36,
-    minHeight: 36,
-    borderRadius: 8,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "rgba(255,255,255,0.04)",
-    color: "#cfeeff",
-    fontWeight: 700,
-    fontSize: 13,
-  },
-  linkInfo: {
-    display: "flex",
-    flexDirection: "column",
-    minWidth: 0,
-    flex: 1,
+    justifyContent: "space-between",
+    fontSize: "12px",
   },
   linkTitle: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#cfeeff",
+    color: "#bae6fd",
     textDecoration: "none",
-    whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-  },
-  linkActionsCompact: {
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
+    whiteSpace: "nowrap",
+    marginRight: "10px",
   },
   iconBtn: {
     background: "transparent",
-    border: "1px solid rgba(255,255,255,0.05)",
-    color: "#9fd1ff",
-    padding: "6px 8px",
-    borderRadius: 6,
+    border: "none",
+    color: "#94a3b8",
     cursor: "pointer",
-    fontSize: 12,
+    padding: "0",
+    fontSize: "14px",
   },
 
+  /* Loading Dots */
+  typingIndicator: {
+    display: "flex",
+    gap: "6px",
+  },
+  dot: {
+    width: "6px",
+    height: "6px",
+    background: "#fff",
+    borderRadius: "50%",
+    animation: "pulse 1.4s infinite ease-in-out both",
+  },
+
+  /* Input Area */
+  inputArea: {
+    padding: "20px",
+    background: "rgba(15, 23, 42, 0.8)",
+    borderTop: "1px solid rgba(255,255,255,0.05)",
+  },
   form: {
     display: "flex",
-    gap: 8,
-    padding: 12,
-    borderTop: "1px solid rgba(255,255,255,0.04)",
-    alignItems: "center",
+    gap: "10px",
+    position: "relative",
   },
   input: {
-    flex: 1,
-    padding: "10px 12px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.06)",
-    background: "#061122",
-    color: "#fff",
+    width: "100%",
+    padding: "14px 50px 14px 20px",
+    borderRadius: "99px",
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "#0f172a",
+    color: "white",
+    fontSize: "15px",
     outline: "none",
-    fontSize: 14,
+    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
   },
-  button: {
-    padding: "10px 14px",
-    borderRadius: 999,
+  sendButton: {
+    position: "absolute",
+    right: "6px",
+    top: "6px",
+    bottom: "6px",
+    width: "40px",
+    borderRadius: "50%",
     border: "none",
-    background: "#0b84ff",
+    background: "#3b82f6",
     color: "white",
     cursor: "pointer",
-    fontWeight: 600,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "background 0.2s",
   },
 
-  dot: {
-    width: 8,
-    height: 8,
-    background: "rgba(255,255,255,0.18)",
-    borderRadius: 999,
-    animation: "typing 1s infinite",
+  /* Modal */
+  modalBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.7)",
+    backdropFilter: "blur(4px)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  modal: {
+    width: "100%",
+    maxWidth: "420px",
+    background: "#1e293b",
+    borderRadius: "16px",
+    padding: "28px",
+    boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    animation: "slideIn 0.2s ease-out",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "10px",
+  },
+  modalTitle: { margin: 0, fontSize: "20px", fontWeight: "700" },
+  closeModalBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#94a3b8",
+    fontSize: "20px",
+    cursor: "pointer",
+    padding: "4px",
+  },
+  modalSub: {
+    fontSize: "14px",
+    color: "#94a3b8",
+    marginBottom: "24px",
+    lineHeight: "1.5",
+  },
+  modalSection: { marginBottom: "24px" },
+  
+  modalLabelRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: "12px",
+  },
+  modalLabel: {
+    fontSize: "14px",
+    fontWeight: "600",
+    color: "#e2e8f0",
+    display: "block",
+  },
+  modalLabelNote: {
+    fontSize: "11px",
+    color: "#64748b",
+  },
+  
+  /* Rating Buttons (Circular) */
+  ratingContainer: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "10px",
+  },
+  ratingBtn: {
+    flex: 1,
+    height: "42px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#94a3b8",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: "600",
+    transition: "all 0.2s",
+  },
+  ratingBtnActive: {
+    flex: 1,
+    height: "42px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#3b82f6",
+    color: "white",
+    fontWeight: "bold",
+    cursor: "pointer",
+    boxShadow: "0 0 15px rgba(59, 130, 246, 0.4)",
+    transform: "scale(1.05)",
+  },
+
+  /* Satisfied Toggle */
+  satisfiedRow: { display: "flex", gap: "12px", marginTop: "10px" },
+  satBtn: {
+    flex: 1,
+    padding: "12px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.03)",
+    color: "#94a3b8",
+    cursor: "pointer",
+    fontSize: "14px",
+    transition: "all 0.2s",
+  },
+  satBtnActiveYes: {
+    flex: 1,
+    padding: "12px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#10b981", // Green
+    color: "white",
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+  satBtnActiveNo: {
+    flex: 1,
+    padding: "12px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#ef4444", // Red
+    color: "white",
+    fontWeight: "600",
+    cursor: "pointer",
+  },
+
+  /* Submit Action */
+  modalActions: { marginTop: "12px" },
+  feedbackSubmit: {
+    width: "100%",
+    padding: "14px",
+    borderRadius: "8px",
+    border: "none",
+    background: "#3b82f6",
+    color: "white",
+    fontWeight: "600",
+    cursor: "pointer",
+    fontSize: "15px",
+    transition: "background 0.2s",
   },
 };
