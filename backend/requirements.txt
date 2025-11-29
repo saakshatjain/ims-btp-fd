@@ -14,3 +14,5 @@ plotly
 supabase
 python-dotenv
 pydantic
+python-multipart
+pydantic-settings

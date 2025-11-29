@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
-const API_URL = "http://127.0.0.1:8000/api/query";
-const FEEDBACK_URL = "http://127.0.0.1:8000/api/feedback";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/query";
+const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || "http://127.0.0.1:8000/api/feedback";
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
