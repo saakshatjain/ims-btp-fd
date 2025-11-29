@@ -3,7 +3,7 @@
 def build_base_prompt(context_text: str, query: str) -> str:
     """
     Builds the complete LLM prompt for notice-based question answering.
-    Ensures the answer is factual, detailed, and sourced.
+    Ensures the answer is factual, detailed, sourced, and has clear source attribution.
     """
 
     return f"""
@@ -17,16 +17,22 @@ Your job:
 3. Include every relevant detail found in the context (e.g., date, venue, time,
    batch info, roll numbers, department, HOD, etc.) but dont add unncecessary details (eg. telling about practical exam datesheet when user asked theory exam datesheet).
 4. Do NOT add or assume anything beyond the context.
-5. If the context doesn’t answer the question, reply exactly with:
+5. Track ALL sources (NOTICE_IDs and SOURCE_LINKs) that you use to form your answer.
+6. If the context doesn't answer the question, reply exactly with:
    "I don't know based on the available notices."
-6. If No question is asked, reply exactly with:
-   "No specific question to answer."   
-7. Dont add any however , note after mentioning sources 
-Format your answer as:
+7. If No question is asked, reply exactly with:
+   "No specific question to answer."
+8. Do NOT add any "however", "note" or disclaimers after the sources section.
 
-<complete factual answer>
+Format your answer EXACTLY as follows (use the separator line as shown):
 
-Sources: notice links
+<your complete factual answer>
+
+===SOURCES===
+- NOTICE_ID: <id> | SOURCE_LINK: <link>
+- NOTICE_ID: <id> | SOURCE_LINK: <link>
+(list all notices used to form the answer)
+===END_SOURCES===
 
 ---
 
@@ -37,5 +43,7 @@ QUESTION:
 {query}
 
 Ensure the answer is comprehensive and structured with proper sentences.
+Use the exact separator format above to distinguish sources from your answer.
+
 Answer:
 """.strip()

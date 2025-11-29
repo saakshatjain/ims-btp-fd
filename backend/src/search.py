@@ -2,6 +2,7 @@
 import os
 import json
 import requests
+import re
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.base_prompt import build_base_prompt
@@ -237,6 +238,52 @@ class RAGSearch:
 
         return build_base_prompt(context_text, query)
 
+    def _parse_sources_from_response(self, response: str) -> dict:
+        """
+        Parses the LLM response to extract answer and sources.
+        
+        Expected format:
+        <answer text>
+        
+        ===SOURCES===
+        - NOTICE_ID: <id> | SOURCE_LINK: <link>
+        - NOTICE_ID: <id> | SOURCE_LINK: <link>
+        ===END_SOURCES===
+        
+        Returns:
+            dict with "answer" and "sources" keys
+        """
+        sources_list = []
+        answer_text = response
+        
+        # Find sources section
+        sources_match = re.search(
+            r'===SOURCES===\s*(.*?)\s*===END_SOURCES===',
+            response,
+            re.DOTALL
+        )
+        
+        if sources_match:
+            sources_section = sources_match.group(1).strip()
+            answer_text = response[:sources_match.start()].strip()
+            
+            # Extract individual source lines
+            source_lines = re.findall(
+                r'-\s*NOTICE_ID:\s*([^\|]+)\s*\|\s*SOURCE_LINK:\s*(.+)',
+                sources_section
+            )
+            
+            for notice_id, source_link in source_lines:
+                sources_list.append({
+                    "notice_id": notice_id.strip(),
+                    "source_link": source_link.strip()
+                })
+        
+        return {
+            "answer": answer_text,
+            "sources": sources_list
+        }
+
     # -------------------------
     # LLM call
     # -------------------------
@@ -268,7 +315,7 @@ class RAGSearch:
             return {"answer": "No relevant documents found after selection.", "sources": []}
 
         # Debug log retrieved chunks (call this to inspect)
-        self.debug_log_chunks(selected)
+        #self.debug_log_chunks(selected)
 
         # 3) Build prompt using retriever-provided data only
         prompt = self._build_prompt(query, selected)
@@ -276,7 +323,12 @@ class RAGSearch:
         # 4) Call LLM with safe retry if it errors out (simple retry with smaller OCR snippet)
         try:
             answer = self._call_llm(prompt)
-            return {"answer": answer.strip(), "sources": selected}
+            print(answer)
+            parsed = self._parse_sources_from_response(answer)
+            return {
+                "answer": parsed["answer"],
+                "sources": parsed["sources"]
+            }
         except Exception as e:
             msg = str(e)
             # if model complains about context length, attempt a fallback by stripping notice_ocr
@@ -288,8 +340,12 @@ class RAGSearch:
                 prompt2 = self._build_prompt(query, selected)
                 try:
                     answer = self._call_llm(prompt2)
-                    return {"answer": answer.strip(), "sources": selected}
+                    parsed = self._parse_sources_from_response(answer)
+                    return {
+                        "answer": parsed["answer"],
+                        "sources": parsed["sources"]
+                    }
                 except Exception as e2:
-                    return {"answer": f"[ERROR] LLM call failed after truncation: {e2}", "sources": selected}
+                    return {"answer": f"[ERROR] LLM call failed after truncation: {e2}", "sources": []}
             
-            return {"answer": f"[ERROR] LLM call failed: {e}", "sources": selected}
+            return {"answer": f"[ERROR] LLM call failed: {e}", "sources": []}

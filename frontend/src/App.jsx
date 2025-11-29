@@ -196,11 +196,16 @@ export default function ChatFrontend() {
 
       if (!resp.ok) throw new Error("Backend error");
       console.log(resp);
+      
       let rawAnswer = "";
+      let sourcesFromAPI = [];
       const contentType = resp.headers.get("content-type") || "";
+      
       if (contentType.includes("application/json")) {
         const j = await resp.json();
         rawAnswer = j.answer || j.output || j.text || JSON.stringify(j);
+        // Extract sources from API response
+        sourcesFromAPI = j.sources || [];
       } else {
         rawAnswer = await resp.text();
       }
@@ -210,15 +215,28 @@ export default function ChatFrontend() {
       rawAnswer = stripFilenamesBeforeLinks(rawAnswer);
       const visible = stripSourcesBlock(rawAnswer);
 
-      const rawLinks = extractLinksFromRaw(rawAnswer);
-      const cleanLinks = cleanAndUniqueLinks(rawLinks);
+      // Convert API sources to link format
       const normalized = [];
-      const seen = new Set();
-      for (const rl of cleanLinks) {
-        const n = normalizeLink(rl);
-        if (!seen.has(n)) {
-          seen.add(n);
-          normalized.push(n);
+      if (sourcesFromAPI && sourcesFromAPI.length > 0) {
+        const seen = new Set();
+        sourcesFromAPI.forEach((src) => {
+          const link = src.source_link || src.link || "";
+          if (link && !seen.has(link)) {
+            seen.add(link);
+            normalized.push(link);
+          }
+        });
+      } else {
+        // Fallback: extract from answer text if no API sources
+        const rawLinks = extractLinksFromRaw(rawAnswer);
+        const cleanLinks = cleanAndUniqueLinks(rawLinks);
+        const seen = new Set();
+        for (const rl of cleanLinks) {
+          const n = normalizeLink(rl);
+          if (!seen.has(n)) {
+            seen.add(n);
+            normalized.push(n);
+          }
         }
       }
 
