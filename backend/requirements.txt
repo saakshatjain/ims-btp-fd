@@ -5,6 +5,7 @@ langchain-groq
 langchain_google_genai
 fastapi
 uvicorn
+gunicorn
 ragas
 datasets
 sentence-transformers
