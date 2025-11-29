@@ -49,7 +49,7 @@ def run_evaluation():
         
         # 1. & 2. Retrieve and Generate
         try:
-            result = rag.search_and_generate(query, top_k=3)
+            result = rag.search_and_generate(query, top_k=10)
             answer = result.get("answer", "")
             sources = result.get("sources", [])
             contexts = [c.get("chunk_text", "") for c in sources]

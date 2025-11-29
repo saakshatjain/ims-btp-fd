@@ -2,6 +2,7 @@ python-dotenv
 requests
 langchain
 langchain-groq
+langchain_google_genai
 fastapi
 uvicorn
 ragas

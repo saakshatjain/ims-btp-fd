@@ -60,7 +60,7 @@ def query_rag(payload: QueryRequest):
     print(f"[INFO] Received query: {query_text}")
     
     try:
-        result = rag.search_and_generate(query_text, top_k=3, prefetch_k=30)
+        result = rag.search_and_generate(query_text, top_k=20, prefetch_k=50)
         
         # Extract answer and sources
         answer = result.get("answer", "No answer generated.")
