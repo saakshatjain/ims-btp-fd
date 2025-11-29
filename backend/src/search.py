@@ -14,9 +14,36 @@ MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 4000))      # total char 
 # If retriever returns notice_ocr, include only this many chars per notice_ocr in prompt
 NOTICE_OCR_TRUNC = int(os.getenv("NOTICE_OCR_TRUNC", 500))
 
+# -------------------------
+# Query normalization (for better retrieval)
+# -------------------------
+STOPWORDS = {
+    "when", "what", "which", "who", "where", "how", "why",
+    "is", "are", "was", "were", "will", "shall", "can", "could",
+    "please", "tell", "me", "about", "the", "a", "an", "of", "for"
+}
+
+def normalize_query(q: str) -> str:
+    """
+    Deterministic normalization to convert natural question forms into
+    keyword-dense search queries appropriate for FTS + vector hybrid retrieval.
+
+    Examples:
+      "When is responsible AI exam?" -> "responsible ai exam date schedule time notice"
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return ""
+    if q.endswith("?"):
+        q = q[:-1]
+    tokens = [t for t in q.split() if t not in STOPWORDS]
+    base = " ".join(tokens)
+    return base.strip()
+
+
 class RAGSearch:
     def __init__(self, llm_model: str = "llama-3.3-70b-versatile"):
-        # Retriever config
+        # Retriever config (external microservice)
         self.retriever_url = os.getenv("RETRIEVER_URL")
         self.retriever_api_key = os.getenv("RETRIEVER_API_KEY")
         if not self.retriever_api_key or not self.retriever_url:
@@ -33,11 +60,32 @@ class RAGSearch:
     # Retriever Call
     # -------------------------
     def _call_retriever(self, query: str, prefetch_k: int = 50):
+        """
+        Calls the external retriever microservice.
+
+        Payload includes:
+          - "query": raw user query (for logging / backward compatibility)
+          - "search_query": normalized keyword-dense query (for FTS/vector hybrid)
+          - "prefetch_k": number of candidates to fetch lexically before vector re-rank
+
+        The retriever is expected to return JSON with a top-level "chunks" list
+        where each chunk is a dict containing keys such as:
+          chunk_text, filename, notice_id, similarity, notice_link (optional), notice_ocr (optional)
+        """
         headers = {
             "api-key": self.retriever_api_key,
             "Content-Type": "application/json"
         }
-        payload = {"query": query, "prefetch_k": prefetch_k}
+
+        # Normalize and send both raw + normalized forms; retriever can choose which to use.
+        normalized = normalize_query(query)
+
+        payload = {
+            "query": query,
+            "search_query": normalized,
+            "prefetch_k": prefetch_k
+        }
+
         resp = requests.post(self.retriever_url, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
         return resp.json()
