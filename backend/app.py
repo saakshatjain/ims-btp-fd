@@ -17,9 +17,9 @@ app.add_middleware(
 # -------------------------
 # Security: CORS Configuration
 # -------------------------
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 ALLOWED_CREDENTIALS = os.getenv("ALLOW_CREDENTIALS", "true").lower() == "true"
-ALLOWED_METHODS = ["GET", "POST"]
+ALLOWED_METHODS = ["*"]
 ALLOWED_HEADERS = ["Content-Type", "Authorization"]
 
 app.add_middleware(

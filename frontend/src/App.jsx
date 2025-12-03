@@ -105,7 +105,10 @@ export default function ChatFrontend() {
     if (!m || m.role !== "bot") return false;
     // Removed the "feedbackSubmitted" check here so we can show the "Submitted" badge
     const txt = (m.text || "").toLowerCase();
-    if (txt.includes("internal error") || txt.includes("i don't know") || txt.includes("specific question to answer")) return false;
+    // Don't show feedback for error responses or edge cases
+    if (txt.includes("internal error") || txt.includes("i don't know") || txt.includes("no specific question")) return false;
+    // Don't show feedback if there are no sources
+    if (!m.links || m.links.length === 0) return false;
     return true;
   }
 
@@ -197,47 +200,35 @@ export default function ChatFrontend() {
       if (!resp.ok) throw new Error("Backend error");
       console.log(resp);
       
-      let rawAnswer = "";
-      let sourcesFromAPI = [];
+      let answer = "";
+      let sources = [];
       const contentType = resp.headers.get("content-type") || "";
       
       if (contentType.includes("application/json")) {
         const j = await resp.json();
-        rawAnswer = j.answer || j.output || j.text || JSON.stringify(j);
-        // Extract sources from API response
-        sourcesFromAPI = j.sources || [];
+        answer = j.answer || j.output || j.text || "";
+        // Parse sources from API response - should be array of objects with source_link
+        sources = j.sources || [];
       } else {
-        rawAnswer = await resp.text();
+        answer = await resp.text();
       }
 
-      if (rawAnswer && rawAnswer.trim().startsWith("[ERROR]")) throw new Error("Server Error");
+      if (answer && answer.trim().startsWith("[ERROR]")) throw new Error("Server Error");
 
-      rawAnswer = stripFilenamesBeforeLinks(rawAnswer);
-      const visible = stripSourcesBlock(rawAnswer);
-
-      // Convert API sources to link format
+      answer = stripFilenamesBeforeLinks(answer);
+      
+      // Convert API sources to link format - only if sources > 0
       const normalized = [];
-      if (sourcesFromAPI && sourcesFromAPI.length > 0) {
+      if (Array.isArray(sources) && sources.length > 0) {
         const seen = new Set();
-        sourcesFromAPI.forEach((src) => {
+        sources.forEach((src) => {
+          // Handle both formats: {source_link: "..."} or {link: "..."}
           const link = src.source_link || src.link || "";
           if (link && !seen.has(link)) {
             seen.add(link);
             normalized.push(link);
           }
         });
-      } else {
-        // Fallback: extract from answer text if no API sources
-        const rawLinks = extractLinksFromRaw(rawAnswer);
-        const cleanLinks = cleanAndUniqueLinks(rawLinks);
-        const seen = new Set();
-        for (const rl of cleanLinks) {
-          const n = normalizeLink(rl);
-          if (!seen.has(n)) {
-            seen.add(n);
-            normalized.push(n);
-          }
-        }
       }
 
       setMessages((m) => [
@@ -245,7 +236,7 @@ export default function ChatFrontend() {
         {
           id: Date.now() + "_b",
           role: "bot",
-          text: visible || (normalized.length ? "" : "No content."),
+          text: answer || "No content.",
           links: normalized,
           showSources: false,
           ts: new Date().toISOString(),

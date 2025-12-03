@@ -242,47 +242,63 @@ class RAGSearch:
         """
         Parses the LLM response to extract answer and sources.
         
-        Expected format:
-        <answer text>
-        
-        ===SOURCES===
-        - NOTICE_ID: <id> | SOURCE_LINK: <link>
-        - NOTICE_ID: <id> | SOURCE_LINK: <link>
-        ===END_SOURCES===
+        Expected format: JSON with "answer" and "sources" keys
+        {
+          "answer": "...",
+          "sources": [
+            {"notice_id": "ID1", "source_link": "https://..."},
+            {"notice_id": "ID2", "source_link": "https://..."}
+          ]
+        }
         
         Returns:
             dict with "answer" and "sources" keys
         """
-        sources_list = []
-        answer_text = response
-        
-        # Find sources section
-        sources_match = re.search(
-            r'===SOURCES===\s*(.*?)\s*===END_SOURCES===',
-            response,
-            re.DOTALL
-        )
-        
-        if sources_match:
-            sources_section = sources_match.group(1).strip()
-            answer_text = response[:sources_match.start()].strip()
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(response)
             
-            # Extract individual source lines
-            source_lines = re.findall(
-                r'-\s*NOTICE_ID:\s*([^\|]+)\s*\|\s*SOURCE_LINK:\s*(.+)',
-                sources_section
-            )
+            answer = parsed.get("answer", "").strip()
+            sources = parsed.get("sources", [])
             
-            for notice_id, source_link in source_lines:
-                sources_list.append({
-                    "notice_id": notice_id.strip(),
-                    "source_link": source_link.strip()
-                })
-        
-        return {
-            "answer": answer_text,
-            "sources": sources_list
-        }
+            # Validate sources is a list
+            if not isinstance(sources, list):
+                sources = []
+            
+            # Check if this is a "don't know" or "no specific question" response
+            lower_answer = answer.lower()
+            if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
+                sources = []
+            
+            return {
+                "answer": answer,
+                "sources": sources if sources else []
+            }
+        except json.JSONDecodeError:
+            # Fallback: try to extract JSON from response if it's embedded in text
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group(0))
+                    answer = parsed.get("answer", response).strip()
+                    sources = parsed.get("sources", [])
+                    if not isinstance(sources, list):
+                        sources = []
+                    lower_answer = answer.lower()
+                    if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
+                        sources = []
+                    return {
+                        "answer": answer,
+                        "sources": sources if sources else []
+                    }
+                except json.JSONDecodeError:
+                    pass
+            
+            # Last resort: return response as-is with no sources
+            return {
+                "answer": response,
+                "sources": []
+            }
 
     # -------------------------
     # LLM call
