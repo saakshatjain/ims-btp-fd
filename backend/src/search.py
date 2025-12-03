@@ -42,9 +42,28 @@ def normalize_query(q: str) -> str:
     return base.strip()
 
 
+def title_match_boost(title: str, normalized_query: str) -> float:
+    """
+    Lightweight lexical boost based on overlap between normalized_query tokens and notice_title.
+    Returns a small additive score (0..~0.15) to add on top of vector similarity.
+    """
+    if not title or not normalized_query:
+        return 0.0
+    title_l = title.lower()
+    tokens = [t for t in normalized_query.split() if t]
+    if not tokens:
+        return 0.0
+    matches = sum(1 for t in tokens if t in title_l)
+    if matches == 0:
+        return 0.0
+    frac = matches / len(tokens)
+    # scale: partial match -> smaller boost, cap to avoid overpowering vectors
+    return min(0.15, 0.05 + 0.15 * frac)
+
+
 class RAGSearch:
     # ---------------------------------------------------------
-    # CHANGED: Default model set to Gemini 2.0 Flash Lite
+    # Default model set to Gemini 2.0 Flash Lite
     # ---------------------------------------------------------
     def __init__(self, llm_model: str = "gemini-2.0-flash-lite-preview-02-05"):
         # Retriever config (external microservice)
@@ -53,14 +72,11 @@ class RAGSearch:
         if not self.retriever_api_key or not self.retriever_url:
             raise ValueError("RETRIEVER_URL and RETRIEVER_API_KEY must be set in .env")
 
-        # ---------------------------------------------------------
-        # CHANGED: Google Gemini Initialization
-        # ---------------------------------------------------------
+        # Google Gemini Initialization
         google_api_key = os.getenv("GOOGLE_API_KEY")
         if not google_api_key:
             raise ValueError("GOOGLE_API_KEY is not set in .env")
         
-        # Initialize Gemini
         # Temperature 0.0 is usually best for RAG tasks to reduce hallucinations
         self.llm = ChatGoogleGenerativeAI(
             google_api_key=google_api_key, 
@@ -83,7 +99,8 @@ class RAGSearch:
 
         The retriever is expected to return JSON with a top-level "chunks" list
         where each chunk is a dict containing keys such as:
-          chunk_text, filename, notice_id, similarity, notice_link (optional), notice_ocr (optional)
+          chunk_text, filename, notice_id, similarity, notice_link (optional),
+          notice_ocr (optional), notice_title (optional)
         """
         headers = {
             "api-key": self.retriever_api_key,
@@ -106,15 +123,32 @@ class RAGSearch:
     # -------------------------
     # Chunk selection
     # -------------------------
-    def _select_chunks(self, chunks: list, top_k: int):
-        sorted_chunks = sorted(chunks, key=lambda c: c.get("similarity", 0.0), reverse=True)
-        if not sorted_chunks:
+    def _select_chunks(self, chunks: list, top_k: int, normalized_query: str = ""):
+        """
+        Select top chunks by similarity, with an optional lightweight title-based lexical boost.
+
+        - Uses `similarity` from retriever (vector score).
+        - Adds a small `title_match_boost` based on notice_title vs normalized_query.
+        - Enforces MAX_CONTEXT_CHARS over accumulated chunk_text.
+        """
+        if not chunks:
             return []
+
+        scored = []
+        for c in chunks:
+            sim = float(c.get("similarity", 0.0) or 0.0)
+            title = c.get("notice_title") or ""
+            boost = title_match_boost(title, normalized_query)
+            adjusted = sim + boost
+            scored.append((adjusted, sim, c))
+
+        # sort by adjusted score desc
+        scored.sort(key=lambda t: t[0], reverse=True)
 
         combined = ""
         final = []
-
-        for c in sorted_chunks[:max(top_k, 1)]:
+        # allow some headroom initially; we still enforce top_k + context budget
+        for adjusted, sim, c in scored:
             text = (c.get("chunk_text") or "").strip()
             if not text:
                 continue
@@ -125,6 +159,8 @@ class RAGSearch:
 
             combined = candidate
             final.append(c)
+            if len(final) >= max(top_k, 1):
+                break
 
         return final
 
@@ -135,8 +171,9 @@ class RAGSearch:
             fn = c.get('filename', 'unknown')
             nid = c.get('notice_id', '-')
             link = c.get('notice_link', 'N/A')
-            print(f"CHUNK {i} — sim={sim:.4f} file={fn} notice_id={nid} link={link}")
-            print(c.get("chunk_text", "")[:400].replace("\n", " "))
+            title = c.get('notice_title') or ""
+            print(f"CHUNK {i} — sim={sim:.4f} file={fn} notice_id={nid} title={title} link={link}")
+            print((c.get("chunk_text", "") or "")[:400].replace("\n", " "))
             # if retriever included a small OCR excerpt, print a bit of it for debug
             if c.get("notice_ocr"):
                 print("[DEBUG] notice_ocr (truncated):", str(c.get("notice_ocr"))[:200].replace("\n", " "))
@@ -149,7 +186,7 @@ class RAGSearch:
         """
         Strategy:
         1) Always include all selected chunk_text blocks (top-K chunks).
-        2) Then, add full OCR text per notice_id, as long as we stay under MAX_CONTEXT_CHARS.
+        2) Then, add truncated OCR text per notice_id, as long as we stay under MAX_CONTEXT_CHARS.
            This way, even if OCR is too long, the key chunks are never dropped.
         """
 
@@ -161,10 +198,12 @@ class RAGSearch:
             notice_link = c.get("notice_link", "N/A")
             sim = c.get("similarity", 0.0)
             notice_id = c.get("notice_id", "UNKNOWN")
+            title = c.get("notice_title") or ""
 
             block = [
                 f"--- CONTEXT CHUNK {i} ---",
                 f"NOTICE_ID: {notice_id}",
+                f"TITLE: {title}",
                 f"FILENAME: {filename}",
                 f"SOURCE_LINK: {notice_link}",
                 f"SCORE: {sim:.4f}",
@@ -188,6 +227,7 @@ class RAGSearch:
                     "filename": c.get("filename", "unknown"),
                     "notice_link": c.get("notice_link", "N/A"),
                     "ocr": c.get("notice_ocr") or "",
+                    "title": c.get("notice_title") or "",
                     "max_similarity": c.get("similarity", 0.0),
                 }
             else:
@@ -210,15 +250,21 @@ class RAGSearch:
 
             filename = info["filename"]
             link = info["notice_link"]
+            title = info.get("title", "")
 
-            # If you want to hard-limit OCR per notice, you can slice here, e.g.:
-            # ocr_text = ocr_text[:NOTICE_OCR_TRUNC]
+            # Truncate OCR per notice according to NOTICE_OCR_TRUNC
+            if NOTICE_OCR_TRUNC and NOTICE_OCR_TRUNC > 0:
+                ocr_part = ocr_text[:NOTICE_OCR_TRUNC]
+            else:
+                ocr_part = ocr_text
+
             notice_block = (
                 f"--- FULL NOTICE {j} ---\n"
                 f"NOTICE_ID: {nid}\n"
+                f"TITLE: {title}\n"
                 f"FILENAME: {filename}\n"
                 f"SOURCE_LINK: {link}\n"
-                f"FULL_NOTICE_OCR:\n{ocr_text}\n"
+                f"FULL_NOTICE_OCR:\n{ocr_part}\n"
                 f"--- END FULL NOTICE {j} ---\n"
             )
 
@@ -314,7 +360,7 @@ class RAGSearch:
     # -------------------------
     # Main flow
     # -------------------------
-    def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 30) -> dict:
+    def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 100) -> dict:
         # 1) Call retriever
         try:
             data = self._call_retriever(query, prefetch_k=prefetch_k)
@@ -325,13 +371,14 @@ class RAGSearch:
         if not chunks:
             return {"answer": "No relevant documents found.", "sources": []}
 
-        # 2) Select top_k chunks (by similarity) - enforces MAX_CONTEXT_CHARS
-        selected = self._select_chunks(chunks, top_k=top_k)
+        # 2) Select top_k chunks (by similarity + small title boost), enforce MAX_CONTEXT_CHARS
+        normalized = normalize_query(query)
+        selected = self._select_chunks(chunks, top_k=top_k, normalized_query=normalized)
         if not selected:
             return {"answer": "No relevant documents found after selection.", "sources": []}
 
-        # Debug log retrieved chunks (call this to inspect)
-        #self.debug_log_chunks(selected)
+        # Debug log retrieved chunks (optional)
+        # self.debug_log_chunks(selected)
 
         # 3) Build prompt using retriever-provided data only
         prompt = self._build_prompt(query, selected)
