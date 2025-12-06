@@ -198,7 +198,7 @@ export default function ChatFrontend() {
       });
 
       if (!resp.ok) throw new Error("Backend error");
-      console.log(resp);
+      //console.log(resp);
       
       let answer = "";
       let sources = [];
@@ -243,7 +243,7 @@ export default function ChatFrontend() {
         },
       ]);
     } catch (err) {
-      console.log(err);
+      //console.log(err);
       setMessages((m) => [
         ...m,
         {
