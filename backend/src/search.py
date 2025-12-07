@@ -2,9 +2,9 @@ import os
 import json
 import requests
 import re
-import time  # <--- Added for sleep
+import time
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq  # <--- CHANGED: Import Groq
 from src.base_prompt import build_base_prompt
 
 load_dotenv()
@@ -46,61 +46,65 @@ def title_match_boost(title: str, normalized_query: str) -> float:
 
 
 class RAGSearch:
-    def __init__(self, llm_model: str = "gemini-2.0-flash-lite-preview-02-05"):
+    # ---------------------------------------------------------
+    # CHANGED: Default model is now Llama 4 Scout (on Groq)
+    # ---------------------------------------------------------
+    def __init__(self, llm_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"):
         self.retriever_url = os.getenv("RETRIEVER_URL")
         self.retriever_api_key = os.getenv("RETRIEVER_API_KEY")
         if not self.retriever_api_key or not self.retriever_url:
             raise ValueError("RETRIEVER_URL and RETRIEVER_API_KEY must be set in .env")
 
+        # --- CHANGED: Load GROQ keys instead of Google keys ---
         keys = []
-        env_keys_csv = os.getenv("GOOGLE_API_KEYS")
-        if env_keys_csv:
-            keys = [k.strip() for k in env_keys_csv.split(",") if k.strip()]
+        
+        # Check for single GROQ_API_KEY
+        first = os.getenv("GROQ_API_KEY")
+        if first:
+            keys.append(first.strip())
+        
+        # Check for GROQ_API_KEY_2 to 5
+        for i in range(2, 6):
+            k = os.getenv(f"GROQ_API_KEY_{i}")
+            if k:
+                keys.append(k.strip())
 
         if not keys:
-            first = os.getenv("GOOGLE_API_KEY")
-            if first:
-                keys.append(first.strip())
-            for i in range(2, 5):
-                k = os.getenv(f"GOOGLE_API_KEY_{i}")
-                if k:
-                    keys.append(k.strip())
+            raise ValueError("No Groq API keys found. Set GROQ_API_KEY in .env")
 
-        if not keys:
-            raise ValueError("No Google API key found in environment. Set GOOGLE_API_KEY or GOOGLE_API_KEYS")
-
-        self.google_api_keys = keys
+        self.groq_api_keys = keys
         self.current_key_index = 0
         self.llm_model_name = llm_model
 
-        print("[INFO] Loaded Google API keys")
-        for idx, k in enumerate(self.google_api_keys):
+        print("[INFO] Loaded Groq API keys")
+        for idx, k in enumerate(self.groq_api_keys):
             print(f"  index={idx} prefix={k[:8]}...")
 
         self._init_llm_with_current_key()
         print(
-            f"[INFO] Initialized LLM model {llm_model} using key index 0 "
-            f"of {len(self.google_api_keys)} available keys"
+            f"[INFO] Initialized Groq LLM {llm_model} using key index 0 "
+            f"of {len(self.groq_api_keys)} available keys"
         )
 
     def _init_llm_with_current_key(self):
-        key = self.google_api_keys[self.current_key_index]
-        print(f"[DEBUG] Initializing LLM with key index {self.current_key_index} prefix={key[:8]}...")
-        self.llm = ChatGoogleGenerativeAI(
-            google_api_key=key,
-            model=self.llm_model_name,
-            temperature=0.0,
-            max_retries=0,     # let our wrapper handle retries and rotation
-            timeout=None,
+        key = self.groq_api_keys[self.current_key_index]
+        print(f"[DEBUG] Initializing Groq LLM with key index {self.current_key_index} prefix={key[:8]}...")
+        
+        # --- CHANGED: Initialize ChatGroq ---
+        self.llm = ChatGroq(
+            api_key=key,
+            model_name=self.llm_model_name,
+            temperature=0.1, # Lower temp is better for factual summaries
+            max_retries=0,   # We handle retries manually
         )
 
     def _rotate_and_reinit(self):
-        if len(self.google_api_keys) <= 1:
+        if len(self.groq_api_keys) <= 1:
             print("[WARN] _rotate_and_reinit called but only one key configured")
             return False
         old_index = self.current_key_index
-        self.current_key_index = (self.current_key_index + 1) % len(self.google_api_keys)
-        print(f"[WARN] Rotating Google API key from index {old_index} to {self.current_key_index}")
+        self.current_key_index = (self.current_key_index + 1) % len(self.groq_api_keys)
+        print(f"[WARN] Rotating Groq API key from index {old_index} to {self.current_key_index}")
         self._init_llm_with_current_key()
         return True
 
@@ -298,15 +302,15 @@ class RAGSearch:
             }
 
     # ---------------------------------------------------------
-    # FIX 2: Completely rewrote _call_llm to handle 429 logic
+    # CALL LLM WITH ROTATION (Adapted for Groq)
     # ---------------------------------------------------------
     def _call_llm(self, prompt: str):
         attempts = 0
-        max_attempts = len(self.google_api_keys)
+        max_attempts = len(self.groq_api_keys)
         last_exception = None
 
         while attempts < max_attempts:
-            print(f"[DEBUG] LLM attempt {attempts + 1} using key index {self.current_key_index}")
+            print(f"[DEBUG] Groq attempt {attempts + 1} using key index {self.current_key_index}")
             try:
                 response = self.llm.invoke([prompt])
                 if hasattr(response, "content"):
@@ -320,24 +324,24 @@ class RAGSearch:
                 msg = str(e)
                 msg_lower = msg.lower()
 
-                print(f"[ERROR] LLM call failed on key index {self.current_key_index}: {msg[:200]}...")
+                print(f"[ERROR] Groq call failed on key index {self.current_key_index}: {msg[:200]}...")
 
                 # Check if it is a Quota/Rate Limit error
+                # Groq rate limits often contain "rate limit" or "429"
                 if (
                     "429" in msg_lower
-                    or "resourceexhausted" in msg_lower
-                    or "quota" in msg_lower
                     or "rate limit" in msg_lower
+                    or "too many requests" in msg_lower
                 ):
                     # --- PARSE WAIT TIME ---
-                    # Look for "Please retry in 18.822659908s" or similar
-                    wait_seconds = 1.0  # default backoff
-                    match = re.search(r"retry in (\d+(\.\d+)?)s", msg_lower)
+                    wait_seconds = 1.0 
+                    # Regex to find "try again in 2.4s" or similar
+                    match = re.search(r"in (\d+(\.\d+)?)s", msg_lower)
                     if match:
-                        wait_seconds = float(match.group(1)) + 1.0  # Add 1s buffer
+                        wait_seconds = float(match.group(1)) + 1.0
                     
-                    print(f"[WARN] Rate limit hit. Sleeping for {wait_seconds:.2f}s before rotating...")
-                    time.sleep(wait_seconds)  # <--- CRITICAL FIX: ACTUAL SLEEP
+                    print(f"[WARN] Groq Rate limit hit. Sleeping for {wait_seconds:.2f}s before rotating...")
+                    time.sleep(wait_seconds) 
 
                     # Now rotate
                     rotated = self._rotate_and_reinit()
@@ -347,21 +351,18 @@ class RAGSearch:
                         print(f"[INFO] Retrying with new key index {self.current_key_index}")
                         continue
                     else:
-                        # No more keys to rotate, but we just slept, so maybe try same key one last time?
-                        # Or break to avoid infinite loop if single key.
                         print("[WARN] No other keys to rotate to. Aborting.")
                         break
 
-                # If it's a context length error, we can't fix it by rotation/sleeping
+                # Context length errors
                 if "context_length" in msg_lower or "too large" in msg_lower:
                     raise e
 
-                # For other unknown errors, you might want to retry or just raise
                 print(f"[ERROR] Unknown error type. Aborting attempts.")
                 raise e
 
         raise RuntimeError(
-            f"LLM invoke failed after trying {attempts} keys. last error: {last_exception}"
+            f"Groq invoke failed after trying {attempts} keys. last error: {last_exception}"
         )
 
     def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 100) -> dict:
@@ -383,7 +384,7 @@ class RAGSearch:
 
         try:
             answer = self._call_llm(prompt)
-            print("[DEBUG] Raw LLM answer:", answer)
+            print("[DEBUG] Raw Groq answer:", answer)
             parsed = self._parse_sources_from_response(answer)
             return {
                 "answer": parsed["answer"],
@@ -393,21 +394,17 @@ class RAGSearch:
             msg = str(e)
             lower = msg.lower()
 
-            if (
-                "resourceexhausted" in lower
-                or "quota" in lower
-                or "rate limit" in lower
-                or "too many requests" in lower
-            ):
+            if "rate limit" in lower or "429" in lower:
                 return {
                     "answer": (
-                        "The language model quota appears to be exhausted for the current Gemini setup. "
-                        "Please update billing or switch to a different model in the backend configuration."
+                        "The Groq API quota appears to be exhausted for all configured keys. "
+                        "Please check your Groq Cloud console."
                     ),
                     "sources": []
                 }
 
-            if "context_length" in lower or "reduce the length" in lower or "400" in lower:
+            if "context_length" in lower or "too large" in lower:
+                # If context is too big, remove OCR text and try again
                 for c in selected:
                     if "notice_ocr" in c:
                         c["notice_ocr"] = None
@@ -420,6 +417,6 @@ class RAGSearch:
                         "sources": parsed["sources"]
                     }
                 except Exception as e2:
-                    return {"answer": f"[ERROR] LLM call failed after truncation: {e2}", "sources": []}
+                    return {"answer": f"[ERROR] Groq call failed after truncation: {e2}", "sources": []}
 
-            return {"answer": f"[ERROR] LLM call failed: {e}", "sources": []}
+            return {"answer": f"[ERROR] Groq call failed: {e}", "sources": []}
