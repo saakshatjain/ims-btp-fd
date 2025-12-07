@@ -1,8 +1,8 @@
-# src/search.py
 import os
 import json
 import requests
 import re
+import time  # <--- Added for sleep
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from src.base_prompt import build_base_prompt
@@ -46,7 +46,11 @@ def title_match_boost(title: str, normalized_query: str) -> float:
 
 
 class RAGSearch:
-    def __init__(self, llm_model: str = "gemini-2.0-flash-lite-preview-02-05"):
+    # ---------------------------------------------------------
+    # FIX 1: Changed default model to 'gemini-1.5-flash'
+    # which has a generous free tier compared to 2.0-preview
+    # ---------------------------------------------------------
+    def __init__(self, llm_model: str = "gemini-1.5-flash"):
         self.retriever_url = os.getenv("RETRIEVER_URL")
         self.retriever_api_key = os.getenv("RETRIEVER_API_KEY")
         if not self.retriever_api_key or not self.retriever_url:
@@ -297,6 +301,9 @@ class RAGSearch:
                 "sources": []
             }
 
+    # ---------------------------------------------------------
+    # FIX 2: Completely rewrote _call_llm to handle 429 logic
+    # ---------------------------------------------------------
     def _call_llm(self, prompt: str):
         attempts = 0
         max_attempts = len(self.google_api_keys)
@@ -317,39 +324,45 @@ class RAGSearch:
                 msg = str(e)
                 msg_lower = msg.lower()
 
-                print(f"[ERROR] LLM call failed on key index {self.current_key_index}: {msg}")
+                print(f"[ERROR] LLM call failed on key index {self.current_key_index}: {msg[:200]}...")
 
-                if (
-                    "resourceexhausted" in msg_lower
-                    and "free_tier" in msg_lower
-                    and "limit: 0" in msg_lower
-                ):
-                    rotated = self._rotate_and_reinit()
-                    attempts += 1
-                    if rotated:
-                        print(f"[WARN] Current key has zero free tier quota, rotated to index {self.current_key_index}")
-                        continue
-                    raise RuntimeError(
-                        "All configured Google API keys have zero free tier quota for this Gemini model. "
-                        "Enable billing or switch model."
-                    ) from e
-
+                # Check if it is a Quota/Rate Limit error
                 if (
                     "429" in msg_lower
-                    or "rate limit" in msg_lower
-                    or "too many requests" in msg_lower
+                    or "resourceexhausted" in msg_lower
                     or "quota" in msg_lower
-                    or "quota exceeded" in msg_lower
+                    or "rate limit" in msg_lower
                 ):
+                    # --- PARSE WAIT TIME ---
+                    # Look for "Please retry in 18.822659908s" or similar
+                    wait_seconds = 1.0  # default backoff
+                    match = re.search(r"retry in (\d+(\.\d+)?)s", msg_lower)
+                    if match:
+                        wait_seconds = float(match.group(1)) + 1.0  # Add 1s buffer
+                    
+                    print(f"[WARN] Rate limit hit. Sleeping for {wait_seconds:.2f}s before rotating...")
+                    time.sleep(wait_seconds)  # <--- CRITICAL FIX: ACTUAL SLEEP
+
+                    # Now rotate
                     rotated = self._rotate_and_reinit()
                     attempts += 1
+                    
                     if rotated:
-                        print(f"[INFO] Retrying LLM call with key index {self.current_key_index}")
+                        print(f"[INFO] Retrying with new key index {self.current_key_index}")
                         continue
                     else:
+                        # No more keys to rotate, but we just slept, so maybe try same key one last time?
+                        # Or break to avoid infinite loop if single key.
+                        print("[WARN] No other keys to rotate to. Aborting.")
                         break
 
-                raise
+                # If it's a context length error, we can't fix it by rotation/sleeping
+                if "context_length" in msg_lower or "too large" in msg_lower:
+                    raise e
+
+                # For other unknown errors, you might want to retry or just raise
+                print(f"[ERROR] Unknown error type. Aborting attempts.")
+                raise e
 
         raise RuntimeError(
             f"LLM invoke failed after trying {attempts} keys. last error: {last_exception}"
