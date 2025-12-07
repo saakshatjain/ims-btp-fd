@@ -9,13 +9,10 @@ from src.base_prompt import build_base_prompt
 
 load_dotenv()
 
-# Config
 SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
-MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 100000))      # total char budget for context sent to LLM
-# If retriever returns notice_ocr, include only this many chars per notice_ocr in prompt
+MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 100000))
 NOTICE_OCR_TRUNC = int(os.getenv("NOTICE_OCR_TRUNC", 500))
 
-# Query normalization (for better retrieval)
 STOPWORDS = {
     "when", "what", "which", "who", "where", "how", "why",
     "is", "are", "was", "were", "will", "shall", "can", "could",
@@ -24,10 +21,6 @@ STOPWORDS = {
 
 
 def normalize_query(q: str) -> str:
-    """
-    Deterministic normalization to convert natural question forms into
-    keyword dense search queries appropriate for FTS and vector hybrid retrieval.
-    """
     q = (q or "").strip().lower()
     if not q:
         return ""
@@ -39,10 +32,6 @@ def normalize_query(q: str) -> str:
 
 
 def title_match_boost(title: str, normalized_query: str) -> float:
-    """
-    Lightweight lexical boost based on overlap between normalized_query tokens and notice_title.
-    Returns a small additive score (0 up to about 0.15) to add on top of vector similarity.
-    """
     if not title or not normalized_query:
         return 0.0
     title_l = title.lower()
@@ -57,22 +46,12 @@ def title_match_boost(title: str, normalized_query: str) -> float:
 
 
 class RAGSearch:
-    """
-    Retrieval and answer generation using an external retriever and a Google Gemini chat model.
-    Default model is Gemini 2.0 Flash Lite preview.
-    """
-
     def __init__(self, llm_model: str = "gemini-2.0-flash-lite-preview-02-05"):
-        # Retriever config (external microservice)
         self.retriever_url = os.getenv("RETRIEVER_URL")
         self.retriever_api_key = os.getenv("RETRIEVER_API_KEY")
         if not self.retriever_api_key or not self.retriever_url:
             raise ValueError("RETRIEVER_URL and RETRIEVER_API_KEY must be set in .env")
 
-        # Google API keys support
-        # Two environment patterns are supported
-        # 1) A single comma separated env var GOOGLE_API_KEYS
-        # 2) Individual variables GOOGLE_API_KEY, GOOGLE_API_KEY_2, GOOGLE_API_KEY_3, GOOGLE_API_KEY_4
         keys = []
         env_keys_csv = os.getenv("GOOGLE_API_KEYS")
         if env_keys_csv:
@@ -99,7 +78,10 @@ class RAGSearch:
             print(f"  index={idx} prefix={k[:8]}...")
 
         self._init_llm_with_current_key()
-        print(f"[INFO] Initialized LLM model {llm_model} using key index 0 of {len(self.google_api_keys)} available keys")
+        print(
+            f"[INFO] Initialized LLM model {llm_model} using key index 0 "
+            f"of {len(self.google_api_keys)} available keys"
+        )
 
     def _init_llm_with_current_key(self):
         key = self.google_api_keys[self.current_key_index]
@@ -107,14 +89,12 @@ class RAGSearch:
         self.llm = ChatGoogleGenerativeAI(
             google_api_key=key,
             model=self.llm_model_name,
-            temperature=0.0
+            temperature=0.0,
+            max_retries=0,     # let our wrapper handle retries and rotation
+            timeout=None,
         )
 
     def _rotate_and_reinit(self):
-        """
-        Advance to the next API key and reinitialize the LLM.
-        Returns True if we rotated to a different key, False if only one key was available.
-        """
         if len(self.google_api_keys) <= 1:
             print("[WARN] _rotate_and_reinit called but only one key configured")
             return False
@@ -125,9 +105,6 @@ class RAGSearch:
         return True
 
     def _call_retriever(self, query: str, prefetch_k: int = 50):
-        """
-        Calls the external retriever microservice.
-        """
         headers = {
             "api-key": self.retriever_api_key,
             "Content-Type": "application/json"
@@ -180,11 +157,11 @@ class RAGSearch:
     def debug_log_chunks(self, chunks: list):
         print("[DEBUG] Retrieved chunks")
         for i, c in enumerate(chunks):
-            sim = c.get('similarity', 0.0)
-            fn = c.get('filename', 'unknown')
-            nid = c.get('notice_id', '-')
-            link = c.get('notice_link', 'N/A')
-            title = c.get('notice_title') or ""
+            sim = c.get("similarity", 0.0)
+            fn = c.get("filename", "unknown")
+            nid = c.get("notice_id", "-")
+            link = c.get("notice_link", "N/A")
+            title = c.get("notice_title") or ""
             print(f"CHUNK {i} | sim={sim:.4f} file={fn} notice_id={nid} title={title} link={link}")
             print((c.get("chunk_text", "") or "")[:400].replace("\n", " "))
             if c.get("notice_ocr"):
@@ -297,7 +274,7 @@ class RAGSearch:
                 "sources": sources if sources else []
             }
         except json.JSONDecodeError:
-            json_match = re.search(r'\{[\s\S]*\}', response)
+            json_match = re.search(r"\{[\s\S]*\}", response)
             if json_match:
                 try:
                     parsed = json.loads(json_match.group(0))
@@ -321,15 +298,12 @@ class RAGSearch:
             }
 
     def _call_llm(self, prompt: str):
-        """
-        Attempt to call the LLM. On rate limit or quota errors rotate to the next key and retry.
-        Each key will be tried at most once per invocation.
-        """
         attempts = 0
         max_attempts = len(self.google_api_keys)
         last_exception = None
 
         while attempts < max_attempts:
+            print(f"[DEBUG] LLM attempt {attempts + 1} using key index {self.current_key_index}")
             try:
                 response = self.llm.invoke([prompt])
                 if hasattr(response, "content"):
@@ -345,7 +319,6 @@ class RAGSearch:
 
                 print(f"[ERROR] LLM call failed on key index {self.current_key_index}: {msg}")
 
-                # Free tier limit zero case for this key or project
                 if (
                     "resourceexhausted" in msg_lower
                     and "free_tier" in msg_lower
@@ -361,7 +334,6 @@ class RAGSearch:
                         "Enable billing or switch model."
                     ) from e
 
-                # Generic rate or quota style error
                 if (
                     "429" in msg_lower
                     or "rate limit" in msg_lower
@@ -377,7 +349,6 @@ class RAGSearch:
                     else:
                         break
 
-                # Non quota error, bubble up
                 raise
 
         raise RuntimeError(
