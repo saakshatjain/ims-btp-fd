@@ -46,11 +46,7 @@ def title_match_boost(title: str, normalized_query: str) -> float:
 
 
 class RAGSearch:
-    # ---------------------------------------------------------
-    # FIX 1: Changed default model to 'gemini-1.5-flash'
-    # which has a generous free tier compared to 2.0-preview
-    # ---------------------------------------------------------
-    def __init__(self, llm_model: str = "gemini-1.5-flash"):
+    def __init__(self, llm_model: str = "gemini-2.0-flash-lite-preview-02-05"):
         self.retriever_url = os.getenv("RETRIEVER_URL")
         self.retriever_api_key = os.getenv("RETRIEVER_API_KEY")
         if not self.retriever_api_key or not self.retriever_url:
