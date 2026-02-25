@@ -186,7 +186,7 @@ export default function ChatFrontend() {
     if (!trimmed) return;
     const userId = Date.now() + "_u";
     const userMsg = { id: userId, role: "user", text: trimmed, links: [], ts: new Date().toISOString() };
-    
+
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
 
@@ -199,16 +199,18 @@ export default function ChatFrontend() {
 
       if (!resp.ok) throw new Error("Backend error");
       //console.log(resp);
-      
+
       let answer = "";
       let sources = [];
+      let suggestedFollowUp = [];
       const contentType = resp.headers.get("content-type") || "";
-      
+
       if (contentType.includes("application/json")) {
         const j = await resp.json();
         answer = j.answer || j.output || j.text || "";
         // Parse sources from API response - should be array of objects with source_link
         sources = j.sources || [];
+        suggestedFollowUp = j.suggested_follow_up || [];
       } else {
         answer = await resp.text();
       }
@@ -216,7 +218,7 @@ export default function ChatFrontend() {
       if (answer && answer.trim().startsWith("[ERROR]")) throw new Error("Server Error");
 
       answer = stripFilenamesBeforeLinks(answer);
-      
+
       // Convert API sources to link format - only if sources > 0
       const normalized = [];
       if (Array.isArray(sources) && sources.length > 0) {
@@ -238,6 +240,7 @@ export default function ChatFrontend() {
           role: "bot",
           text: answer || "No content.",
           links: normalized,
+          suggestedFollowUp: suggestedFollowUp,
           showSources: false,
           ts: new Date().toISOString(),
         },
@@ -296,7 +299,7 @@ export default function ChatFrontend() {
       <div style={styles.container}>
         <header style={styles.headerRow}>
           <div style={styles.header}>
-            <span style={{color: "#3b82f6"}}>IMS</span> Chatbot
+            <span style={{ color: "#3b82f6" }}>IMS</span> Chatbot
           </div>
           <button style={styles.clearBtn} onClick={() => setMessages([])}>
             Clear Chat
@@ -306,7 +309,7 @@ export default function ChatFrontend() {
         <div ref={containerRef} style={styles.chatArea}>
           {messages.length === 0 && (
             <div style={styles.emptyState}>
-              <h2 style={{color: "#e2e8f0", marginBottom: 8}}>How can I help you?</h2>
+              <h2 style={{ color: "#e2e8f0", marginBottom: 8 }}>How can I help you?</h2>
             </div>
           )}
 
@@ -324,14 +327,14 @@ export default function ChatFrontend() {
                     <p key={i} style={{ margin: "4px 0", minHeight: line.trim() ? "auto" : 8 }}>{line}</p>
                   ))}
                 </div>
-                
+
                 {/* Meta Row: Feedback Button + Timestamp */}
                 <div style={styles.metaRow}>
                   {shouldShowFeedback(m) && (
                     <>
                       {m.feedbackSubmitted ? (
                         <span style={styles.feedbackSubmitted} title="Feedback submitted">
-                          <span style={{fontSize: "14px", marginRight: "4px"}}>✓</span>
+                          <span style={{ fontSize: "14px", marginRight: "4px" }}>✓</span>
                           Submitted
                         </span>
                       ) : (
@@ -340,12 +343,12 @@ export default function ChatFrontend() {
                           onClick={() => openFeedbackPopupFor(m)}
                           title="Provide Feedback"
                         >
-                          <span style={{fontSize: "14px", marginRight: "3px"}}>✎</span> Feedback
+                          <span style={{ fontSize: "14px", marginRight: "3px" }}>✎</span> Feedback
                         </button>
                       )}
                     </>
                   )}
-                  
+
                   <span style={styles.ts}>
                     {m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
                   </span>
@@ -387,17 +390,35 @@ export default function ChatFrontend() {
                     )}
                   </div>
                 )}
+
+                {/* Suggested Follow-ups */}
+                {m.suggestedFollowUp && m.suggestedFollowUp.length > 0 && (
+                  <div style={styles.followUpBlock}>
+                    <div style={styles.followUpTitle}>Suggested Questions:</div>
+                    <div style={styles.followUpGrid}>
+                      {m.suggestedFollowUp.map((sq, idx) => (
+                        <button
+                          key={idx}
+                          style={styles.followUpBtn}
+                          onClick={() => submit(sq)}
+                        >
+                          {sq}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}
 
           {loading && (
             <div style={styles.messageWrapper}>
-               <div style={{...styles.botBubble, padding: "12px 20px"}}>
+              <div style={{ ...styles.botBubble, padding: "12px 20px" }}>
                 <div style={styles.typingIndicator}>
-                  <div style={{...styles.dot, animationDelay: "0s"}} />
-                  <div style={{...styles.dot, animationDelay: "0.2s"}} />
-                  <div style={{...styles.dot, animationDelay: "0.4s"}} />
+                  <div style={{ ...styles.dot, animationDelay: "0s" }} />
+                  <div style={{ ...styles.dot, animationDelay: "0.2s" }} />
+                  <div style={{ ...styles.dot, animationDelay: "0.4s" }} />
                 </div>
               </div>
             </div>
@@ -415,7 +436,7 @@ export default function ChatFrontend() {
             />
             <button type="submit" style={styles.sendButton} disabled={loading || !query.trim()}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </form>
@@ -430,15 +451,15 @@ export default function ChatFrontend() {
               <h3 style={styles.modalTitle}>Feedback</h3>
               <button style={styles.closeModalBtn} onClick={() => setFeedbackOpenFor(null)}>✕</button>
             </div>
-            
+
             {/* Updated Text */}
             <p style={styles.modalSub}>Feedback is collected for research and analysis.</p>
 
             {/* Answer Rating */}
             <div style={styles.modalSection}>
               <div style={styles.modalLabelRow}>
-                 <span style={styles.modalLabel}>Answer Quality</span>
-                 <span style={styles.modalLabelNote}>(1 = Poor, 5 = Excellent)</span>
+                <span style={styles.modalLabel}>Answer Quality</span>
+                <span style={styles.modalLabelNote}>(1 = Poor, 5 = Excellent)</span>
               </div>
               <div style={styles.ratingContainer}>
                 {[1, 2, 3, 4, 5].map((n) => (
@@ -456,8 +477,8 @@ export default function ChatFrontend() {
             {/* Source Rating */}
             <div style={styles.modalSection}>
               <div style={styles.modalLabelRow}>
-                 <span style={styles.modalLabel}>Source Relevance</span>
-                 <span style={styles.modalLabelNote}>(1 = Irrelevant, 5 = Relevant)</span>
+                <span style={styles.modalLabel}>Source Relevance</span>
+                <span style={styles.modalLabelNote}>(1 = Irrelevant, 5 = Relevant)</span>
               </div>
               <div style={styles.ratingContainer}>
                 {[1, 2, 3, 4, 5].map((n) => (
@@ -545,7 +566,7 @@ const styles = {
     overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.05)",
   },
-  
+
   /* Header */
   headerRow: {
     padding: "20px 24px",
@@ -594,7 +615,7 @@ const styles = {
     alignItems: "flex-end",
     animation: "slideIn 0.3s ease-out forwards",
   },
-  
+
   /* Bubbles */
   userBubble: {
     background: "#3b82f6",
@@ -621,7 +642,7 @@ const styles = {
   },
   metaRow: {
     display: "flex",
-    justifyContent: "space-between", 
+    justifyContent: "space-between",
     alignItems: "center",
     marginTop: "8px",
     borderTop: "1px solid rgba(255,255,255,0.05)",
@@ -630,7 +651,7 @@ const styles = {
   ts: {
     fontSize: "10px",
     opacity: 0.6,
-    marginLeft: "auto", 
+    marginLeft: "auto",
   },
   feedbackBtn: {
     background: "transparent",
@@ -703,6 +724,34 @@ const styles = {
     cursor: "pointer",
     padding: "0",
     fontSize: "14px",
+  },
+
+  /* Follow Ups */
+  followUpBlock: {
+    marginTop: "16px",
+    paddingTop: "12px",
+    borderTop: "1px dashed rgba(255,255,255,0.1)",
+  },
+  followUpTitle: {
+    fontSize: "12px",
+    color: "#93c5fd",
+    marginBottom: "10px",
+    fontWeight: "600",
+  },
+  followUpGrid: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+  },
+  followUpBtn: {
+    background: "rgba(59, 130, 246, 0.15)",
+    border: "1px solid rgba(59, 130, 246, 0.4)",
+    color: "#e0f2fe",
+    padding: "6px 12px",
+    borderRadius: "16px",
+    fontSize: "13px",
+    cursor: "pointer",
+    transition: "background 0.2s, transform 0.1s",
   },
 
   /* Loading Dots */
@@ -800,7 +849,7 @@ const styles = {
     lineHeight: "1.5",
   },
   modalSection: { marginBottom: "24px" },
-  
+
   modalLabelRow: {
     display: "flex",
     justifyContent: "space-between",
@@ -817,7 +866,7 @@ const styles = {
     fontSize: "11px",
     color: "#64748b",
   },
-  
+
   /* Rating Buttons (Circular) */
   ratingContainer: {
     display: "flex",
