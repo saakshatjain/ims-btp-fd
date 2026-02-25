@@ -62,14 +62,16 @@ def query_rag(payload: QueryRequest):
     try:
         result = rag.search_and_generate(query_text, top_k=20, prefetch_k=50)
         
-        # Extract answer and sources
+        # Extract answer, sources, and suggested follow-ups
         answer = result.get("answer", "No answer generated.")
         sources = result.get("sources", [])
+        suggested_follow_up = result.get("suggested_follow_up", [])
 
         return {
             "query": query_text,
             "answer": answer,
-            "sources": sources
+            "sources": sources,
+            "suggested_follow_up": suggested_follow_up
         }
     except Exception as e:
         print(f"[ERROR] RAG generation failed: {e}")

@@ -265,17 +265,22 @@ class RAGSearch:
 
             answer = parsed.get("answer", "").strip()
             sources = parsed.get("sources", [])
+            suggested_follow_up = parsed.get("suggested_follow_up", [])
 
             if not isinstance(sources, list):
                 sources = []
+            if not isinstance(suggested_follow_up, list):
+                suggested_follow_up = []
 
             lower_answer = answer.lower()
             if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
                 sources = []
+                suggested_follow_up = []
 
             return {
                 "answer": answer,
-                "sources": sources if sources else []
+                "sources": sources if sources else [],
+                "suggested_follow_up": suggested_follow_up
             }
         except json.JSONDecodeError:
             json_match = re.search(r"\{[\s\S]*\}", response)
@@ -284,21 +289,30 @@ class RAGSearch:
                     parsed = json.loads(json_match.group(0))
                     answer = parsed.get("answer", response).strip()
                     sources = parsed.get("sources", [])
+                    suggested_follow_up = parsed.get("suggested_follow_up", [])
+                    
                     if not isinstance(sources, list):
                         sources = []
+                    if not isinstance(suggested_follow_up, list):
+                        suggested_follow_up = []
+
                     lower_answer = answer.lower()
                     if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
                         sources = []
+                        suggested_follow_up = []
+                        
                     return {
                         "answer": answer,
-                        "sources": sources if sources else []
+                        "sources": sources if sources else [],
+                        "suggested_follow_up": suggested_follow_up
                     }
                 except json.JSONDecodeError:
                     pass
 
             return {
                 "answer": response,
-                "sources": []
+                "sources": [],
+                "suggested_follow_up": []
             }
 
     # ---------------------------------------------------------
@@ -366,19 +380,28 @@ class RAGSearch:
         )
 
     def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 100) -> dict:
+        # --- QUERY TRANSFORMATION ---
+        optimized_query = query
+        transform_prompt = f"Extract the core search intent from the following question to query a document database. Return ONLY the relevant keywords. No filler words or explanation. Question: {query}"
         try:
-            data = self._call_retriever(query, prefetch_k=prefetch_k)
+            optimized_query = self._call_llm(transform_prompt).strip()
+            print(f"[DEBUG] Original Query: {query} | Optimized Query: {optimized_query}")
         except Exception as e:
-            return {"answer": f"[ERROR] Retriever call failed: {e}", "sources": []}
+            print(f"[ERROR] Query transformation failed: {e}")
+            
+        try:
+            data = self._call_retriever(optimized_query, prefetch_k=prefetch_k)
+        except Exception as e:
+            return {"answer": f"[ERROR] Retriever call failed: {e}", "sources": [], "suggested_follow_up": []}
 
         chunks = data.get("chunks", []) if isinstance(data, dict) else []
         if not chunks:
-            return {"answer": "No relevant documents found.", "sources": []}
+            return {"answer": "No relevant documents found.", "sources": [], "suggested_follow_up": []}
 
         normalized = normalize_query(query)
         selected = self._select_chunks(chunks, top_k=top_k, normalized_query=normalized)
         if not selected:
-            return {"answer": "No relevant documents found after selection.", "sources": []}
+            return {"answer": "No relevant documents found after selection.", "sources": [], "suggested_follow_up": []}
 
         prompt = self._build_prompt(query, selected)
 
@@ -387,8 +410,9 @@ class RAGSearch:
             print("[DEBUG] Raw Groq answer:", answer)
             parsed = self._parse_sources_from_response(answer)
             return {
-                "answer": parsed["answer"],
-                "sources": parsed["sources"]
+                "answer": parsed.get("answer", ""),
+                "sources": parsed.get("sources", []),
+                "suggested_follow_up": parsed.get("suggested_follow_up", [])
             }
         except Exception as e:
             msg = str(e)
@@ -400,7 +424,8 @@ class RAGSearch:
                         "The Groq API quota appears to be exhausted for all configured keys. "
                         "Please check your Groq Cloud console."
                     ),
-                    "sources": []
+                    "sources": [],
+                    "suggested_follow_up": []
                 }
 
             if "context_length" in lower or "too large" in lower:
@@ -413,10 +438,11 @@ class RAGSearch:
                     answer = self._call_llm(prompt2)
                     parsed = self._parse_sources_from_response(answer)
                     return {
-                        "answer": parsed["answer"],
-                        "sources": parsed["sources"]
+                        "answer": parsed.get("answer", ""),
+                        "sources": parsed.get("sources", []),
+                        "suggested_follow_up": parsed.get("suggested_follow_up", [])
                     }
                 except Exception as e2:
-                    return {"answer": f"[ERROR] Groq call failed after truncation: {e2}", "sources": []}
+                    return {"answer": f"[ERROR] Groq call failed after truncation: {e2}", "sources": [], "suggested_follow_up": []}
 
-            return {"answer": f"[ERROR] Groq call failed: {e}", "sources": []}
+            return {"answer": f"[ERROR] Groq call failed: {e}", "sources": [], "suggested_follow_up": []}

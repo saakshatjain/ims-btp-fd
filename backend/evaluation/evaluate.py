@@ -71,7 +71,7 @@ def run_evaluation():
     load_dotenv()
     
     # Use separate key for evaluation if available, otherwise fallback to standard key
-    ragas_api_key = os.getenv("RAGAS_GROQ_API_KEY")
+    ragas_api_key = os.getenv("GROQ_API_KEY_2")
     if not ragas_api_key:
         print("Error: No API key found. Please set RAGAS_GROQ_API_KEY or GROQ_API_KEY in .env")
         return
