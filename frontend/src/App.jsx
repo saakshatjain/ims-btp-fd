@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/query";
-const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || "http://127.0.0.1:8000/api/feedback";
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/query";
+const FEEDBACK_URL =
+  import.meta.env.VITE_FEEDBACK_URL || "http://127.0.0.1:8000/api/feedback";
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
@@ -12,9 +14,7 @@ export default function ChatFrontend() {
   const [copiedLink, setCopiedLink] = useState(null);
 
   /* ---------------------- SETTINGS STATE ---------------------- */
-  const [deepSearch, setDeepSearch] = useState(false);
   const [enableRecommendations, setEnableRecommendations] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
 
   /* ---------------------- FEEDBACK STATE ---------------------- */
   const [feedbackOpenFor, setFeedbackOpenFor] = useState(null);
@@ -36,7 +36,9 @@ export default function ChatFrontend() {
       try {
         const url = m[2];
         if (!links.includes(url)) links.push(url);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     }
     const urlRegex = /https?:\/\/[^\s)]+/gi;
     while ((m = urlRegex.exec(raw)) !== null) {
@@ -66,7 +68,9 @@ export default function ChatFrontend() {
 
   function normalizeLink(raw) {
     if (!raw) return raw;
-    let s = String(raw).trim().replace(/[\u200B-\u200D\uFEFF]/g, "");
+    let s = String(raw)
+      .trim()
+      .replace(/[\u200B-\u200D\uFEFF]/g, "");
     if (s.startsWith("<") && s.endsWith(">")) s = s.slice(1, -1);
     s = s.replace(/[\u2014\u2013]+$/, "").replace(/[),.?!;:]+$/g, "");
     if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = "https://" + s;
@@ -96,7 +100,9 @@ export default function ChatFrontend() {
       await navigator.clipboard.writeText(text);
       setCopiedLink(text);
       setTimeout(() => setCopiedLink(null), 1400);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   /* ---------------------- Feedback Helpers ---------------------- */
@@ -106,9 +112,26 @@ export default function ChatFrontend() {
     // Removed the "feedbackSubmitted" check here so we can show the "Submitted" badge
     const txt = (m.text || "").toLowerCase();
     // Don't show feedback for error responses or edge cases
-    if (txt.includes("internal error") || txt.includes("i don't know") || txt.includes("no specific question")) return false;
+    if (
+      txt.includes("internal error") ||
+      txt.includes("i don't know") ||
+      txt.includes("no specific question")
+    )
+      return false;
     // Don't show feedback if there are no sources
     if (!m.links || m.links.length === 0) return false;
+    return true;
+  }
+
+  function shouldShowRetry(m) {
+    if (!m || m.role !== "bot") return false;
+    const txt = (m.text || "").toLowerCase();
+    if (
+      txt.includes("internal error") ||
+      txt.includes("i don't know") ||
+      txt.includes("no specific question")
+    )
+      return false;
     return true;
   }
 
@@ -167,8 +190,10 @@ export default function ChatFrontend() {
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === messageObj.id ? { ...m, feedbackSubmitted: true, feedback: payload } : m
-        )
+          m.id === messageObj.id
+            ? { ...m, feedbackSubmitted: true, feedback: payload }
+            : m,
+        ),
       );
       setFeedbackOpenFor(null);
     } catch (err) {
@@ -181,11 +206,32 @@ export default function ChatFrontend() {
 
   /* ---------------------- Networking ---------------------- */
 
-  async function submit(text) {
+  async function handleRetry(messageId) {
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx < 0) return;
+    let userQuery = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        userQuery = messages[i].text;
+        break;
+      }
+    }
+    if (userQuery) {
+      await submit(userQuery, true);
+    }
+  }
+
+  async function submit(text, overrideDeepSearch = false) {
     const trimmed = text?.trim();
     if (!trimmed) return;
     const userId = Date.now() + "_u";
-    const userMsg = { id: userId, role: "user", text: trimmed, links: [], ts: new Date().toISOString() };
+    const userMsg = {
+      id: userId,
+      role: "user",
+      text: trimmed,
+      links: [],
+      ts: new Date().toISOString(),
+    };
 
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
@@ -194,7 +240,10 @@ export default function ChatFrontend() {
       const resp = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed, deep_search: deepSearch }),
+        body: JSON.stringify({
+          query: trimmed,
+          deep_search: overrideDeepSearch,
+        }),
       });
 
       if (!resp.ok) throw new Error("Backend error");
@@ -215,7 +264,8 @@ export default function ChatFrontend() {
         answer = await resp.text();
       }
 
-      if (answer && answer.trim().startsWith("[ERROR]")) throw new Error("Server Error");
+      if (answer && answer.trim().startsWith("[ERROR]"))
+        throw new Error("Server Error");
 
       answer = stripFilenamesBeforeLinks(answer);
 
@@ -272,12 +322,19 @@ export default function ChatFrontend() {
   }
 
   function toggleSources(id) {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, showSources: !m.showSources } : m)));
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === id ? { ...m, showSources: !m.showSources } : m,
+      ),
+    );
   }
 
   useEffect(() => {
     if (containerRef.current) {
-      containerRef.current.scrollTo({ top: containerRef.current.scrollHeight, behavior: "smooth" });
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
   }, [messages, loading]);
 
@@ -287,8 +344,8 @@ export default function ChatFrontend() {
     <>
       <Analytics />
       <div style={styles.page}>
-      <style>
-        {`
+        <style>
+          {`
           @keyframes slideIn {
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
@@ -297,265 +354,396 @@ export default function ChatFrontend() {
             0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; }
           }
         `}
-      </style>
+        </style>
 
-      <div style={styles.container}>
-        <header style={styles.headerRow}>
-          <div style={styles.header}>
-            <span style={{ color: "#3b82f6" }}>IMS</span> Chatbot
-          </div>
-          <div style={styles.headerControls}>
-            <button style={styles.settingsBtn} onClick={() => setShowSettings(!showSettings)}>
-              {showSettings ? "Close Settings" : "⚙ Settings"}
-            </button>
-            <button style={styles.clearBtn} onClick={() => setMessages([])}>
-              Clear Chat
-            </button>
-          </div>
-        </header>
-
-        {showSettings && (
-          <div style={styles.settingsPanel}>
-            <label style={styles.settingLabel}>
-              <input
-                type="checkbox"
-                checked={deepSearch}
-                onChange={(e) => setDeepSearch(e.target.checked)}
-                style={styles.checkbox}
-              />
-              Deep Search <span style={styles.settingHint}>(Takes longer but finds more context and solves better)</span>
-            </label>
-            <label style={styles.settingLabel}>
-              <input
-                type="checkbox"
-                checked={enableRecommendations}
-                onChange={(e) => setEnableRecommendations(e.target.checked)}
-                style={styles.checkbox}
-              />
-              Enable Recommendations <span style={styles.settingHint}>(Shows suggested follow-up questions)</span>
-            </label>
-          </div>
-        )}
-
-        <div ref={containerRef} style={styles.chatArea}>
-          {messages.length === 0 && (
-            <div style={styles.emptyState}>
-              <h2 style={{ color: "#e2e8f0", marginBottom: 8 }}>How can I help you?</h2>
+        <div style={styles.container}>
+          <div style={styles.sidebar}>
+            <div style={styles.sidebarHeader}>
+              <span
+                style={{
+                  color: "#3b82f6",
+                  fontWeight: "bold",
+                  fontSize: "22px",
+                }}
+              >
+                IMS
+              </span>{" "}
+              Chatbot
             </div>
-          )}
 
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              style={{
-                ...styles.messageWrapper,
-                justifyContent: m.role === "user" ? "flex-end" : "flex-start",
-              }}
+            <button
+              style={styles.sidebarNewChatBtn}
+              onClick={() => setMessages([])}
             >
-              <div style={m.role === "user" ? styles.userBubble : styles.botBubble}>
-                <div style={styles.messageTextInner}>
-                  {m.text && m.text.split("\n").map((line, i) => (
-                    <p key={i} style={{ margin: "4px 0", minHeight: line.trim() ? "auto" : 8 }}>{line}</p>
-                  ))}
+              + New Chat
+            </button>
+
+            <div style={styles.sidebarBottom}>
+              <label style={styles.sidebarLabel}>
+                <input
+                  type="checkbox"
+                  checked={enableRecommendations}
+                  onChange={(e) => setEnableRecommendations(e.target.checked)}
+                  style={styles.checkbox}
+                />
+                Recommendations
+              </label>
+            </div>
+          </div>
+
+          <div style={styles.mainContent}>
+            <div ref={containerRef} style={styles.chatArea}>
+              {messages.length === 0 && (
+                <div style={styles.emptyState}>
+                  <h2 style={{ color: "#e2e8f0", marginBottom: 8 }}>
+                    How can I help you?
+                  </h2>
                 </div>
+              )}
 
-                {/* Meta Row: Feedback Button + Timestamp */}
-                <div style={styles.metaRow}>
-                  {shouldShowFeedback(m) && (
-                    <>
-                      {m.feedbackSubmitted ? (
-                        <span style={styles.feedbackSubmitted} title="Feedback submitted">
-                          <span style={{ fontSize: "14px", marginRight: "4px" }}>✓</span>
-                          Submitted
-                        </span>
-                      ) : (
-                        <button
-                          style={styles.feedbackBtn}
-                          onClick={() => openFeedbackPopupFor(m)}
-                          title="Provide Feedback"
-                        >
-                          <span style={{ fontSize: "14px", marginRight: "3px" }}>✎</span> Feedback
-                        </button>
-                      )}
-                    </>
-                  )}
+              {messages.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    ...styles.messageWrapper,
+                    justifyContent:
+                      m.role === "user" ? "flex-end" : "flex-start",
+                  }}
+                >
+                  <div
+                    style={
+                      m.role === "user" ? styles.userBubble : styles.botBubble
+                    }
+                  >
+                    <div style={styles.messageTextInner}>
+                      {m.text &&
+                        m.text.split("\n").map((line, i) => (
+                          <p
+                            key={i}
+                            style={{
+                              margin: "4px 0",
+                              minHeight: line.trim() ? "auto" : 8,
+                            }}
+                          >
+                            {line}
+                          </p>
+                        ))}
+                    </div>
 
-                  <span style={styles.ts}>
-                    {m.ts ? new Date(m.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-                  </span>
-                </div>
+                    {/* Meta Row: Feedback Button + Timestamp */}
+                    <div style={styles.metaRow}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "12px",
+                          alignItems: "center",
+                        }}
+                      >
+                        {shouldShowFeedback(m) &&
+                          (m.feedbackSubmitted ? (
+                            <span
+                              style={styles.feedbackSubmitted}
+                              title="Feedback submitted"
+                            >
+                              <span
+                                style={{ fontSize: "14px", marginRight: "4px" }}
+                              >
+                                ✓
+                              </span>
+                              Submitted
+                            </span>
+                          ) : (
+                            <button
+                              style={styles.feedbackBtn}
+                              onClick={() => openFeedbackPopupFor(m)}
+                              title="Provide Feedback"
+                            >
+                              <span
+                                style={{ fontSize: "14px", marginRight: "3px" }}
+                              >
+                                ✎
+                              </span>{" "}
+                              Feedback
+                            </button>
+                          ))}
 
-                {/* Sources Section */}
-                {m.links && m.links.length > 0 && (
-                  <div style={styles.sourcesBlock}>
-                    <div style={styles.separator} />
-                    <div
-                      style={styles.sourcesHeaderCompact}
-                      onClick={() => toggleSources(m.id)}
-                    >
-                      <span style={styles.sourcesLabel}>
-                        Sources ({m.links.length})
-                      </span>
-                      <span style={{ transform: m.showSources ? "rotate(180deg)" : "rotate(0deg)", transition: "0.2s" }}>
-                        ▼
+                        {shouldShowRetry(m) && (
+                          <button
+                            style={styles.feedbackBtn}
+                            onClick={() => handleRetry(m.id)}
+                            disabled={loading}
+                            title="Retry with deeper search"
+                          >
+                            <span
+                              style={{ fontSize: "14px", marginRight: "3px" }}
+                            >
+                              ↻
+                            </span>{" "}
+                            Retry
+                          </button>
+                        )}
+                      </div>
+
+                      <span style={styles.ts}>
+                        {m.ts
+                          ? new Date(m.ts).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
                       </span>
                     </div>
 
-                    {m.showSources && (
-                      <div style={styles.linksGrid}>
-                        {m.links.map((l, i) => (
-                          <div key={i} style={styles.linkCard}>
-                            <a href={l} target="_blank" rel="noopener noreferrer" style={styles.linkTitle} title={l}>
-                              {shortenUrl(l)}
-                            </a>
-                            <button
-                              style={styles.iconBtn}
-                              onClick={() => copyToClipboard(l)}
-                              title="Copy URL"
-                            >
-                              {copiedLink === l ? "✓" : "❐"}
-                            </button>
+                    {/* Sources Section */}
+                    {m.links && m.links.length > 0 && (
+                      <div style={styles.sourcesBlock}>
+                        <div style={styles.separator} />
+                        <div
+                          style={styles.sourcesHeaderCompact}
+                          onClick={() => toggleSources(m.id)}
+                        >
+                          <span style={styles.sourcesLabel}>
+                            Sources ({m.links.length})
+                          </span>
+                          <span
+                            style={{
+                              transform: m.showSources
+                                ? "rotate(180deg)"
+                                : "rotate(0deg)",
+                              transition: "0.2s",
+                            }}
+                          >
+                            ▼
+                          </span>
+                        </div>
+
+                        {m.showSources && (
+                          <div style={styles.linksGrid}>
+                            {m.links.map((l, i) => (
+                              <div key={i} style={styles.linkCard}>
+                                <a
+                                  href={l}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={styles.linkTitle}
+                                  title={l}
+                                >
+                                  {shortenUrl(l)}
+                                </a>
+                                <button
+                                  style={styles.iconBtn}
+                                  onClick={() => copyToClipboard(l)}
+                                  title="Copy URL"
+                                >
+                                  {copiedLink === l ? "✓" : "❐"}
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
 
-                {/* Suggested Follow-ups */}
-                {enableRecommendations && m.suggestedFollowUp && m.suggestedFollowUp.length > 0 && (
-                  <div style={styles.followUpBlock}>
-                    <div style={styles.followUpTitle}>Suggested Questions:</div>
-                    <div style={styles.followUpGrid}>
-                      {m.suggestedFollowUp.map((sq, idx) => (
-                        <button
-                          key={idx}
-                          style={styles.followUpBtn}
-                          onClick={() => submit(sq)}
-                        >
-                          {sq}
-                        </button>
-                      ))}
+                    {/* Suggested Follow-ups */}
+                    {enableRecommendations &&
+                      m.suggestedFollowUp &&
+                      m.suggestedFollowUp.length > 0 && (
+                        <div style={styles.followUpBlock}>
+                          <div style={styles.followUpTitle}>
+                            Suggested Questions:
+                          </div>
+                          <div style={styles.followUpGrid}>
+                            {m.suggestedFollowUp.map((sq, idx) => (
+                              <button
+                                key={idx}
+                                style={styles.followUpBtn}
+                                onClick={() => submit(sq)}
+                              >
+                                {sq}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                </div>
+              ))}
+
+              {loading && (
+                <div style={styles.messageWrapper}>
+                  <div style={{ ...styles.botBubble, padding: "12px 20px" }}>
+                    <div style={styles.typingIndicator}>
+                      <div style={{ ...styles.dot, animationDelay: "0s" }} />
+                      <div style={{ ...styles.dot, animationDelay: "0.2s" }} />
+                      <div style={{ ...styles.dot, animationDelay: "0.4s" }} />
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
-          ))}
 
-          {loading && (
-            <div style={styles.messageWrapper}>
-              <div style={{ ...styles.botBubble, padding: "12px 20px" }}>
-                <div style={styles.typingIndicator}>
-                  <div style={{ ...styles.dot, animationDelay: "0s" }} />
-                  <div style={{ ...styles.dot, animationDelay: "0.2s" }} />
-                  <div style={{ ...styles.dot, animationDelay: "0.4s" }} />
+            <div style={styles.inputArea}>
+              <form style={styles.form} onSubmit={sendQuery}>
+                <input
+                  placeholder={
+                    loading ? "Thinking..." : "Type your question..."
+                  }
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  style={styles.input}
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  style={styles.sendButton}
+                  disabled={loading || !query.trim()}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* FEEDBACK MODAL */}
+          {feedbackOpenFor && (
+            <div
+              style={styles.modalBackdrop}
+              onClick={() => setFeedbackOpenFor(null)}
+            >
+              <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
+                <div style={styles.modalHeader}>
+                  <h3 style={styles.modalTitle}>Feedback</h3>
+                  <button
+                    style={styles.closeModalBtn}
+                    onClick={() => setFeedbackOpenFor(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Updated Text */}
+                <p style={styles.modalSub}>
+                  Feedback is collected for research and analysis.
+                </p>
+
+                {/* Answer Rating */}
+                <div style={styles.modalSection}>
+                  <div style={styles.modalLabelRow}>
+                    <span style={styles.modalLabel}>Answer Quality</span>
+                    <span style={styles.modalLabelNote}>
+                      (1 = Poor, 5 = Excellent)
+                    </span>
+                  </div>
+                  <div style={styles.ratingContainer}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        style={
+                          feedbackDraft.answer === n
+                            ? styles.ratingBtnActive
+                            : styles.ratingBtn
+                        }
+                        onClick={() =>
+                          setFeedbackDraft((p) => ({ ...p, answer: n }))
+                        }
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Source Rating */}
+                <div style={styles.modalSection}>
+                  <div style={styles.modalLabelRow}>
+                    <span style={styles.modalLabel}>Source Relevance</span>
+                    <span style={styles.modalLabelNote}>
+                      (1 = Irrelevant, 5 = Relevant)
+                    </span>
+                  </div>
+                  <div style={styles.ratingContainer}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        style={
+                          feedbackDraft.source === n
+                            ? styles.ratingBtnActive
+                            : styles.ratingBtn
+                        }
+                        onClick={() =>
+                          setFeedbackDraft((p) => ({ ...p, source: n }))
+                        }
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Satisfied Toggle */}
+                <div style={styles.modalSection}>
+                  <span style={styles.modalLabel}>
+                    Are you satisfied with this result?
+                  </span>
+                  <div style={styles.satisfiedRow}>
+                    <button
+                      style={
+                        feedbackDraft.satisfied === true
+                          ? styles.satBtnActiveYes
+                          : styles.satBtn
+                      }
+                      onClick={() =>
+                        setFeedbackDraft((p) => ({ ...p, satisfied: true }))
+                      }
+                    >
+                      Yes
+                    </button>
+                    <button
+                      style={
+                        feedbackDraft.satisfied === false
+                          ? styles.satBtnActiveNo
+                          : styles.satBtn
+                      }
+                      onClick={() =>
+                        setFeedbackDraft((p) => ({ ...p, satisfied: false }))
+                      }
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div style={styles.modalActions}>
+                  <button
+                    style={styles.feedbackSubmit}
+                    onClick={() =>
+                      submitFeedback(
+                        messages.find((x) => x.id === feedbackOpenFor),
+                      )
+                    }
+                    disabled={feedbackLoading}
+                  >
+                    {feedbackLoading ? "Sending..." : "Submit Feedback"}
+                  </button>
                 </div>
               </div>
             </div>
           )}
         </div>
-
-        <div style={styles.inputArea}>
-          <form style={styles.form} onSubmit={sendQuery}>
-            <input
-              placeholder={loading ? "Thinking..." : "Type your question..."}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={styles.input}
-              disabled={loading}
-            />
-            <button type="submit" style={styles.sendButton} disabled={loading || !query.trim()}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </form>
-        </div>
-      </div>
-
-      {/* FEEDBACK MODAL */}
-      {feedbackOpenFor && (
-        <div style={styles.modalBackdrop} onClick={() => setFeedbackOpenFor(null)}>
-          <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>Feedback</h3>
-              <button style={styles.closeModalBtn} onClick={() => setFeedbackOpenFor(null)}>✕</button>
-            </div>
-
-            {/* Updated Text */}
-            <p style={styles.modalSub}>Feedback is collected for research and analysis.</p>
-
-            {/* Answer Rating */}
-            <div style={styles.modalSection}>
-              <div style={styles.modalLabelRow}>
-                <span style={styles.modalLabel}>Answer Quality</span>
-                <span style={styles.modalLabelNote}>(1 = Poor, 5 = Excellent)</span>
-              </div>
-              <div style={styles.ratingContainer}>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    style={feedbackDraft.answer === n ? styles.ratingBtnActive : styles.ratingBtn}
-                    onClick={() => setFeedbackDraft(p => ({ ...p, answer: n }))}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Source Rating */}
-            <div style={styles.modalSection}>
-              <div style={styles.modalLabelRow}>
-                <span style={styles.modalLabel}>Source Relevance</span>
-                <span style={styles.modalLabelNote}>(1 = Irrelevant, 5 = Relevant)</span>
-              </div>
-              <div style={styles.ratingContainer}>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    style={feedbackDraft.source === n ? styles.ratingBtnActive : styles.ratingBtn}
-                    onClick={() => setFeedbackDraft(p => ({ ...p, source: n }))}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Satisfied Toggle */}
-            <div style={styles.modalSection}>
-              <span style={styles.modalLabel}>Are you satisfied with this result?</span>
-              <div style={styles.satisfiedRow}>
-                <button
-                  style={feedbackDraft.satisfied === true ? styles.satBtnActiveYes : styles.satBtn}
-                  onClick={() => setFeedbackDraft(p => ({ ...p, satisfied: true }))}
-                >
-                  Yes
-                </button>
-                <button
-                  style={feedbackDraft.satisfied === false ? styles.satBtnActiveNo : styles.satBtn}
-                  onClick={() => setFeedbackDraft(p => ({ ...p, satisfied: false }))}
-                >
-                  No
-                </button>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div style={styles.modalActions}>
-              <button
-                style={styles.feedbackSubmit}
-                onClick={() => submitFeedback(messages.find(x => x.id === feedbackOpenFor))}
-                disabled={feedbackLoading}
-              >
-                {feedbackLoading ? "Sending..." : "Submit Feedback"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </>
   );
@@ -587,85 +775,73 @@ const styles = {
     color: "#f1f5f9",
   },
   container: {
-    width: "100%",
-    maxWidth: "900px",
+    width: "90%",
+    maxWidth: "1200px",
     height: "90vh",
     background: "#1e293b",
     borderRadius: "20px",
     boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
     display: "flex",
-    flexDirection: "column",
+    flexDirection: "row",
     overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.05)",
   },
 
-  /* Header */
-  headerRow: {
-    padding: "20px 24px",
+  /* Sidebar styles */
+  sidebar: {
+    width: "260px",
     background: "rgba(15, 23, 42, 0.6)",
     backdropFilter: "blur(10px)",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  header: {
-    fontSize: "18px",
-    fontWeight: "700",
-    letterSpacing: "-0.025em",
-  },
-  clearBtn: {
-    background: "transparent",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#94a3b8",
-    padding: "6px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    cursor: "pointer",
-    transition: "all 0.2s",
-  },
-  headerControls: {
-    display: "flex",
-    gap: "10px",
-    alignItems: "center",
-  },
-  settingsBtn: {
-    background: "rgba(59, 130, 246, 0.1)",
-    border: "1px solid rgba(59, 130, 246, 0.3)",
-    color: "#60a5fa",
-    padding: "6px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    cursor: "pointer",
-    transition: "all 0.2s",
-  },
-  settingsPanel: {
-    background: "rgba(15, 23, 42, 0.9)",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
-    padding: "16px 24px",
+    borderRight: "1px solid rgba(255,255,255,0.05)",
     display: "flex",
     flexDirection: "column",
-    gap: "10px",
-    fontSize: "13px",
+    padding: "20px",
   },
-  settingLabel: {
+  sidebarHeader: {
+    fontSize: "18px",
+    fontWeight: "600",
+    marginBottom: "30px",
+    color: "#f1f5f9",
+  },
+  sidebarNewChatBtn: {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#f1f5f9",
+    padding: "10px",
+    borderRadius: "8px",
+    fontSize: "14px",
+    cursor: "pointer",
+    transition: "background 0.2s",
+    textAlign: "left",
+    marginBottom: "20px",
+  },
+  sidebarBottom: {
+    marginTop: "auto",
+    paddingTop: "20px",
+    borderTop: "1px solid rgba(255,255,255,0.05)",
+  },
+  sidebarLabel: {
     display: "flex",
     alignItems: "center",
     cursor: "pointer",
-    color: "#e2e8f0",
+    color: "#94a3b8",
+    fontSize: "13px",
   },
+
+  /* Main Content Styles */
+  mainContent: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+
   checkbox: {
     marginRight: "10px",
     cursor: "pointer",
     width: "16px",
     height: "16px",
     accentColor: "#3b82f6",
-  },
-  settingHint: {
-    marginLeft: "8px",
-    fontSize: "11px",
-    color: "#94a3b8",
   },
 
   /* Chat Area */
