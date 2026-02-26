@@ -1409,8 +1409,7 @@ export default function ChatFrontend() {
                   >
                     <Send
                       size={18}
-                      fill={t.bgMain}
-                      color={t.bgMain}
+                      color={query.trim() ? t.bgMain : t.textSecondary}
                       style={{ marginLeft: "-2px" }}
                     />
                   </button>
