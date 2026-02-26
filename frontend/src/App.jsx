@@ -1,7 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
-import { Send, Square, Bot, User as UserIcon, Settings, Plus, X, Menu, Copy, Check, MessageSquare } from "lucide-react";
+import {
+  Send,
+  Square,
+  Bot,
+  User as UserIcon,
+  Settings,
+  Plus,
+  X,
+  Menu,
+  Copy,
+  Check,
+  MessageSquare,
+} from "lucide-react";
 import nsutLogo from "../nsutlogo.png";
 
 const API_URL =
@@ -348,6 +360,80 @@ export default function ChatFrontend() {
     }
   }
 
+  async function submitPrecomputedFollowUp(sq) {
+    if (!sq || !sq.question) return;
+
+    let targetChatId = activeChatId;
+    let isNewChat = false;
+
+    if (!targetChatId) {
+      targetChatId = Date.now().toString();
+      isNewChat = true;
+      setActiveChatId(targetChatId);
+    }
+
+    const userId = Date.now() + "_u";
+    const userMsg = {
+      id: userId,
+      role: "user",
+      text: sq.question,
+      links: [],
+      ts: new Date().toISOString(),
+    };
+
+    const normalized = [];
+    if (Array.isArray(sq.sources) && sq.sources.length > 0) {
+      const seen = new Set();
+      sq.sources.forEach((src) => {
+        let link =
+          typeof src === "string" ? src : src.source_link || src.link || "";
+        link = normalizeLink(link);
+        if (link && !seen.has(link)) {
+          seen.add(link);
+          normalized.push({
+            link: link,
+            title: src.notice_title || src.title || "",
+            id: src.notice_id || src.id || "",
+          });
+        }
+      });
+    }
+
+    const botMsg = {
+      id: Date.now() + "_b",
+      role: "bot",
+      text: sq.answer || "No content.",
+      links: normalized,
+      suggestedFollowUp: [], // Don't show more follow ups for pre-computed to avoid loops/token explosion
+      showSources: false,
+      ts: new Date().toISOString(),
+    };
+
+    setChats((prev) => {
+      if (isNewChat) {
+        return [
+          {
+            id: targetChatId,
+            title: sq.question.substring(0, 30),
+            messages: [userMsg, botMsg],
+            loading: false,
+            loadingText: "",
+          },
+          ...prev,
+        ];
+      }
+      return prev.map((c) => {
+        if (c.id === targetChatId) {
+          return {
+            ...c,
+            messages: [...c.messages, userMsg, botMsg],
+          };
+        }
+        return c;
+      });
+    });
+  }
+
   async function submit(text, overrideDeepSearch = false) {
     const trimmed = text?.trim();
     if (!trimmed) return;
@@ -597,7 +683,8 @@ export default function ChatFrontend() {
             borderRight: `1px solid ${t.border}`,
             display: "flex",
             flexDirection: "column",
-            overflow: "hidden", /* FIXED: Explicit boundary for Settings button */
+            overflow:
+              "hidden" /* FIXED: Explicit boundary for Settings button */,
             boxSizing: "border-box",
             padding: "16px 12px",
             flexShrink: 0,
@@ -605,8 +692,11 @@ export default function ChatFrontend() {
             height: "100%",
             zIndex: 50,
             transform: isSidebarOpen ? "translateX(0)" : "translateX(-100%)",
-            transition: isMobile ? "transform 0.3s ease" : "transform 0.3s ease, margin-left 0.3s ease, width 0s",
-            marginLeft: !isMobile && !isSidebarOpen ? `-${sidebarWidth}px` : "0",
+            transition: isMobile
+              ? "transform 0.3s ease"
+              : "transform 0.3s ease, margin-left 0.3s ease, width 0s",
+            marginLeft:
+              !isMobile && !isSidebarOpen ? `-${sidebarWidth}px` : "0",
           }}
         >
           <div
@@ -1075,7 +1165,7 @@ export default function ChatFrontend() {
                                     if (parts[parts.length - 1])
                                       finalTitle = parts[parts.length - 1];
                                   }
-                                } catch (e) { }
+                                } catch (e) {}
                               }
 
                               return (
@@ -1148,32 +1238,44 @@ export default function ChatFrontend() {
                                   gap: "6px",
                                 }}
                               >
-                                {m.suggestedFollowUp.map((sq, idx) => (
-                                  <button
-                                    key={idx}
-                                    style={{
-                                      textAlign: "left",
-                                      background: "transparent",
-                                      border: `1px solid ${t.border}`,
-                                      color: t.textPrimary,
-                                      padding: "10px 14px",
-                                      borderRadius: "8px",
-                                      fontSize: "13px",
-                                      cursor: "pointer",
-                                    }}
-                                    onMouseOver={(e) =>
-                                    (e.currentTarget.style.background =
-                                      t.hoverBg)
-                                    }
-                                    onMouseOut={(e) =>
-                                    (e.currentTarget.style.background =
-                                      "transparent")
-                                    }
-                                    onClick={() => submit(sq)}
-                                  >
-                                    {sq}
-                                  </button>
-                                ))}
+                                {m.suggestedFollowUp.map((sq, idx) => {
+                                  const isObject =
+                                    typeof sq === "object" && sq !== null;
+                                  const questionText = isObject
+                                    ? sq.question
+                                    : sq;
+
+                                  return (
+                                    <button
+                                      key={idx}
+                                      style={{
+                                        textAlign: "left",
+                                        background: "transparent",
+                                        border: `1px solid ${t.border}`,
+                                        color: t.textPrimary,
+                                        padding: "10px 14px",
+                                        borderRadius: "8px",
+                                        fontSize: "13px",
+                                        cursor: "pointer",
+                                      }}
+                                      onMouseOver={(e) =>
+                                        (e.currentTarget.style.background =
+                                          t.hoverBg)
+                                      }
+                                      onMouseOut={(e) =>
+                                        (e.currentTarget.style.background =
+                                          "transparent")
+                                      }
+                                      onClick={() =>
+                                        isObject && sq.answer
+                                          ? submitPrecomputedFollowUp(sq)
+                                          : submit(questionText)
+                                      }
+                                    >
+                                      {questionText}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
@@ -1191,7 +1293,20 @@ export default function ChatFrontend() {
                       width: "100%",
                     }}
                   >
-                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: t.textPrimary, color: t.bgMain, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "4px" }}>
+                    <div
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: "50%",
+                        background: t.textPrimary,
+                        color: t.bgMain,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        marginTop: "4px",
+                      }}
+                    >
                       <Bot size={20} color={t.bgMain} />
                     </div>
                     <div
@@ -1278,9 +1393,7 @@ export default function ChatFrontend() {
                     type="submit"
                     disabled={!query.trim()}
                     style={{
-                      background: query.trim()
-                        ? t.textPrimary
-                        : t.border,
+                      background: query.trim() ? t.textPrimary : t.border,
                       opacity: query.trim() ? 1 : 0.6,
                       color: t.bgMain,
                       border: "none",
@@ -1294,7 +1407,12 @@ export default function ChatFrontend() {
                       transition: "0.2s",
                     }}
                   >
-                    <Send size={18} fill={t.bgMain} color={t.bgMain} style={{ marginLeft: "-2px" }} />
+                    <Send
+                      size={18}
+                      fill={t.bgMain}
+                      color={t.bgMain}
+                      style={{ marginLeft: "-2px" }}
+                    />
                   </button>
                 )}
               </form>
@@ -1724,15 +1842,15 @@ export default function ChatFrontend() {
                   borderRadius: "6px",
                   cursor:
                     feedbackLoading ||
-                      !feedbackDraft.answer ||
-                      !feedbackDraft.source
+                    !feedbackDraft.answer ||
+                    !feedbackDraft.source
                       ? "not-allowed"
                       : "pointer",
                   fontSize: "13px",
                   opacity:
                     feedbackLoading ||
-                      !feedbackDraft.answer ||
-                      !feedbackDraft.source
+                    !feedbackDraft.answer ||
+                    !feedbackDraft.source
                       ? 0.5
                       : 1,
                 }}
