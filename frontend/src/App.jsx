@@ -653,6 +653,7 @@ export default function ChatFrontend() {
             style={{
               flex: 1,
               overflowY: "auto",
+              minHeight: 0,
               marginTop: "16px",
               display: "flex",
               flexDirection: "column",
@@ -1232,18 +1233,9 @@ export default function ChatFrontend() {
                       width: "100%",
                     }}
                   >
-                    <img
-                      src={nsutLogo}
-                      alt="Bot"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        flexShrink: 0,
-                        objectFit: "contain",
-                        marginTop: "4px",
-                        borderRadius: "50%",
-                      }}
-                    />
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: t.textPrimary, color: t.bgMain, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "4px" }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.bgMain} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+                    </div>
                     <div
                       style={{
                         padding: "4px 0",
@@ -1312,8 +1304,8 @@ export default function ChatFrontend() {
                       background: t.textPrimary,
                       color: t.bgMain,
                       border: "none",
-                      width: "32px",
-                      height: "32px",
+                      width: "36px",
+                      height: "36px",
                       borderRadius: "50%",
                       display: "flex",
                       alignItems: "center",
@@ -1325,7 +1317,11 @@ export default function ChatFrontend() {
                       width="16"
                       height="16"
                       viewBox="0 0 24 24"
-                      fill="currentColor"
+                      fill="none"
+                      stroke={t.bgMain}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
                       <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
                     </svg>
@@ -1337,11 +1333,12 @@ export default function ChatFrontend() {
                     style={{
                       background: query.trim()
                         ? t.textPrimary
-                        : t.textSecondary,
+                        : t.border,
+                      opacity: query.trim() ? 1 : 0.6,
                       color: t.bgMain,
                       border: "none",
-                      width: "32px",
-                      height: "32px",
+                      width: "36px",
+                      height: "36px",
                       borderRadius: "50%",
                       display: "flex",
                       alignItems: "center",
@@ -1351,17 +1348,18 @@ export default function ChatFrontend() {
                     }}
                   >
                     <svg
-                      width="16"
-                      height="16"
+                      width="18"
+                      height="18"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="currentColor"
+                      stroke={t.bgMain}
                       strokeWidth="2.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
+                      style={{ marginLeft: "-2px" }}
                     >
-                      <line x1="12" y1="19" x2="12" y2="5"></line>
-                      <polyline points="5 12 12 5 19 12"></polyline>
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                     </svg>
                   </button>
                 )}
@@ -1782,8 +1780,7 @@ export default function ChatFrontend() {
                 disabled={
                   feedbackLoading ||
                   !feedbackDraft.answer ||
-                  !feedbackDraft.source ||
-                  feedbackDraft.satisfied === null
+                  !feedbackDraft.source
                 }
                 style={{
                   background: t.textPrimary,
@@ -1794,16 +1791,14 @@ export default function ChatFrontend() {
                   cursor:
                     feedbackLoading ||
                     !feedbackDraft.answer ||
-                    !feedbackDraft.source ||
-                    feedbackDraft.satisfied === null
+                    !feedbackDraft.source
                       ? "not-allowed"
                       : "pointer",
                   fontSize: "13px",
                   opacity:
                     feedbackLoading ||
                     !feedbackDraft.answer ||
-                    !feedbackDraft.source ||
-                    feedbackDraft.satisfied === null
+                    !feedbackDraft.source
                       ? 0.5
                       : 1,
                 }}
