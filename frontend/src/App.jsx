@@ -30,6 +30,18 @@ const Star = ({ filled, onClick, t }) => (
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
   const [activeChatId, setActiveChatId] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+      if (window.innerWidth > 768) setIsSidebarOpen(true);
+      else setIsSidebarOpen(false);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   // Storage for all chats: { id, title, messages: [] }
   const [chats, setChats] = useState(() => {
@@ -363,7 +375,7 @@ export default function ChatFrontend() {
         return [
           {
             id: targetChatId,
-            title: trimmed.substring(0, 30) + "...",
+            title: trimmed.substring(0, 30),
             messages: [userMsg],
             loading: true,
             loadingText: "Thinking...",
@@ -525,6 +537,26 @@ export default function ChatFrontend() {
   return (
     <>
       <Analytics />
+      <style>{`
+        input:focus, button:focus, form:focus-within {
+          outline: none !important;
+          box-shadow: none !important;
+        }
+        .user-avatar {
+          background: ${t.textPrimary};
+          color: ${t.bgMain};
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 600;
+          font-size: 14px;
+          flex-shrink: 0;
+          margin-top: 4px;
+        }
+      `}</style>
       <div
         style={{
           display: "flex",
@@ -535,35 +567,62 @@ export default function ChatFrontend() {
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
+        {isMobile && isSidebarOpen && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.5)",
+              zIndex: 40,
+            }}
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar */}
         <div
           style={{
-            width: "260px",
+            width: "280px",
             background: t.bgSidebar,
             borderRight: `1px solid ${t.border}`,
             display: "flex",
             flexDirection: "column",
             padding: "16px 12px",
             flexShrink: 0,
+            position: isMobile ? "fixed" : "relative",
+            height: "100%",
+            zIndex: 50,
+            transform: isSidebarOpen ? "translateX(0)" : "translateX(-100%)",
+            transition: "transform 0.3s ease, margin-left 0.3s ease",
+            marginLeft: !isMobile && !isSidebarOpen ? "-280px" : "0",
           }}
         >
           <div
             style={{
               padding: "0 8px",
               marginBottom: "20px",
-              fontSize: "16px",
-              fontWeight: "600",
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
-              gap: "8px",
+              gap: "12px",
+              borderBottom: `1px solid ${t.border}`,
+              paddingBottom: "16px",
             }}
           >
             <img
               src={nsutLogo}
               alt="NSUT Logo"
-              style={{ width: 24, height: 24, objectFit: "contain" }}
+              style={{ width: "65%", objectFit: "contain" }}
             />
-            NSUT Bot
+            <div
+              style={{
+                fontSize: "16px",
+                fontWeight: "600",
+                letterSpacing: "1px",
+              }}
+            >
+              NSUT BOT
+            </div>
           </div>
 
           <button
@@ -703,12 +762,69 @@ export default function ChatFrontend() {
             flexDirection: "column",
             background: t.bgMain,
             position: "relative",
+            width: isMobile ? "100vw" : "auto",
           }}
         >
+          {/* Top Bar for Sidebar Toggle */}
+          <div
+            style={{
+              padding: "12px 20px",
+              borderBottom: isLight ? `1px solid ${t.border}` : "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+            }}
+          >
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: t.textPrimary,
+                cursor: "pointer",
+                padding: "8px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "6px",
+              }}
+              onMouseOver={(e) =>
+                (e.currentTarget.style.background = t.hoverBg)
+              }
+              onMouseOut={(e) =>
+                (e.currentTarget.style.background = "transparent")
+              }
+            >
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            </button>
+            <span
+              style={{
+                fontWeight: "500",
+                fontSize: "16px",
+                letterSpacing: "0.5px",
+              }}
+            >
+              NSUT Bot
+            </span>
+          </div>
+
           {/* Messages Area */}
           <div
             ref={containerRef}
-            style={{ flex: 1, overflowY: "auto", padding: "40px 0" }}
+            style={{ flex: 1, overflowY: "auto", padding: "20px 0 40px" }}
           >
             {messages.length === 0 ? (
               <div
@@ -762,7 +878,7 @@ export default function ChatFrontend() {
                         maxWidth: m.role === "bot" ? "100%" : "85%",
                       }}
                     >
-                      {m.role === "bot" && (
+                      {m.role === "bot" ? (
                         <img
                           src={nsutLogo}
                           alt="Bot"
@@ -775,6 +891,8 @@ export default function ChatFrontend() {
                             borderRadius: "50%",
                           }}
                         />
+                      ) : (
+                        <div className="user-avatar">U</div>
                       )}
 
                       <div
@@ -1377,223 +1495,176 @@ export default function ChatFrontend() {
               maxWidth: "90%",
               padding: "24px",
               color: t.textPrimary,
+              boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
             <h3
               style={{
-                margin: "0 0 20px 0",
-                fontSize: "20px",
+                margin: "0 0 16px 0",
+                fontSize: "16px",
                 fontWeight: "600",
-                textAlign: "center",
+                color: t.textPrimary,
               }}
             >
-              How was the response?
+              Share Your Feedback
             </h3>
 
             <div style={{ marginBottom: "20px" }}>
               <div
                 style={{
-                  fontSize: "14px",
-                  marginBottom: "12px",
+                  fontSize: "13px",
+                  marginBottom: "8px",
                   color: t.textSecondary,
-                  textAlign: "center",
-                  fontWeight: "500",
                 }}
               >
-                Answer Quality
+                How would you rate the answer?
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "10px",
-                  justifyContent: "center",
-                }}
-              >
+              <div style={{ display: "flex", gap: "6px" }}>
                 {[1, 2, 3, 4, 5].map((n) => (
-                  <Star
-                    key={n}
-                    t={t}
-                    filled={feedbackDraft.answer >= n}
+                  <button
+                    key={"ans" + n}
                     onClick={() =>
                       setFeedbackDraft((p) => ({ ...p, answer: n }))
                     }
-                  />
+                    style={{
+                      flex: 1,
+                      padding: "8px 0",
+                      fontSize: "13px",
+                      background:
+                        feedbackDraft.answer === n
+                          ? t.textPrimary
+                          : "transparent",
+                      color:
+                        feedbackDraft.answer === n ? t.bgMain : t.textPrimary,
+                      border: `1px solid ${feedbackDraft.answer === n ? t.textPrimary : t.border}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <div
+                style={{
+                  fontSize: "13px",
+                  marginBottom: "8px",
+                  color: t.textSecondary,
+                }}
+              >
+                Were the sources helpful?
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={"src" + n}
+                    onClick={() =>
+                      setFeedbackDraft((p) => ({ ...p, source: n }))
+                    }
+                    style={{
+                      flex: 1,
+                      padding: "8px 0",
+                      fontSize: "13px",
+                      background:
+                        feedbackDraft.source === n
+                          ? t.textPrimary
+                          : "transparent",
+                      color:
+                        feedbackDraft.source === n ? t.bgMain : t.textPrimary,
+                      border: `1px solid ${feedbackDraft.source === n ? t.textPrimary : t.border}`,
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                  >
+                    {n}
+                  </button>
                 ))}
               </div>
             </div>
 
             <div style={{ marginBottom: "24px" }}>
-              <div
-                style={{
-                  fontSize: "14px",
-                  marginBottom: "12px",
-                  color: t.textSecondary,
-                  textAlign: "center",
-                  fontWeight: "500",
-                }}
-              >
-                Source Relevance
-              </div>
-              <div
+              <label
                 style={{
                   display: "flex",
-                  gap: "10px",
-                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  userSelect: "none",
                 }}
               >
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star
-                    key={n}
-                    t={t}
-                    filled={feedbackDraft.source >= n}
-                    onClick={() =>
-                      setFeedbackDraft((p) => ({ ...p, source: n }))
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "32px" }}>
-              <div
-                style={{
-                  fontSize: "14px",
-                  marginBottom: "12px",
-                  color: t.textSecondary,
-                  textAlign: "center",
-                  fontWeight: "500",
-                }}
-              >
-                Did this fully resolve your question?
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: "12px",
-                  justifyContent: "center",
-                }}
-              >
-                <button
-                  onClick={() =>
-                    setFeedbackDraft((p) => ({ ...p, satisfied: true }))
+                <input
+                  type="checkbox"
+                  checked={feedbackDraft.satisfied === true}
+                  onChange={(e) =>
+                    setFeedbackDraft((p) => ({
+                      ...p,
+                      satisfied: e.target.checked ? true : false,
+                    }))
                   }
-                  style={{
-                    flex: 1,
-                    maxWidth: "120px",
-                    padding: "10px",
-                    borderRadius: "8px",
-                    background:
-                      feedbackDraft.satisfied === true
-                        ? t.textPrimary
-                        : t.inputBg,
-                    color:
-                      feedbackDraft.satisfied === true
-                        ? t.bgMain
-                        : t.textPrimary,
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "14px",
-                    fontWeight: "500",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px",
-                    transition: "0.2s",
-                  }}
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
-                  </svg>
-                  Yes
-                </button>
-                <button
-                  onClick={() =>
-                    setFeedbackDraft((p) => ({ ...p, satisfied: false }))
-                  }
-                  style={{
-                    flex: 1,
-                    maxWidth: "120px",
-                    padding: "10px",
-                    borderRadius: "8px",
-                    background:
-                      feedbackDraft.satisfied === false
-                        ? t.textPrimary
-                        : t.inputBg,
-                    color:
-                      feedbackDraft.satisfied === false
-                        ? t.bgMain
-                        : t.textPrimary,
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "14px",
-                    fontWeight: "500",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px",
-                    transition: "0.2s",
-                  }}
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
-                  </svg>
-                  No
-                </button>
-              </div>
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                />
+                I am satisfied with this response
+              </label>
             </div>
 
             <div
               style={{
                 display: "flex",
                 justifyContent: "flex-end",
-                gap: "10px",
+                gap: "12px",
               }}
             >
               <button
                 onClick={() => setFeedbackOpenFor(null)}
                 style={{
                   background: "transparent",
-                  border: "none",
                   color: t.textSecondary,
+                  border: "none",
                   cursor: "pointer",
-                  padding: "8px 16px",
+                  fontSize: "13px",
                 }}
               >
                 Cancel
               </button>
               <button
-                disabled={feedbackLoading}
                 onClick={submitFeedback}
+                disabled={
+                  feedbackLoading ||
+                  !feedbackDraft.answer ||
+                  !feedbackDraft.source ||
+                  feedbackDraft.satisfied === null
+                }
                 style={{
                   background: t.textPrimary,
                   color: t.bgMain,
                   border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
                   padding: "8px 16px",
-                  fontWeight: "500",
+                  borderRadius: "6px",
+                  cursor:
+                    feedbackLoading ||
+                    !feedbackDraft.answer ||
+                    !feedbackDraft.source ||
+                    feedbackDraft.satisfied === null
+                      ? "not-allowed"
+                      : "pointer",
+                  fontSize: "13px",
+                  opacity:
+                    feedbackLoading ||
+                    !feedbackDraft.answer ||
+                    !feedbackDraft.source ||
+                    feedbackDraft.satisfied === null
+                      ? 0.5
+                      : 1,
                 }}
               >
-                {feedbackLoading ? "Sending..." : "Submit"}
+                {feedbackLoading ? "Submitting..." : "Submit"}
               </button>
             </div>
           </div>
