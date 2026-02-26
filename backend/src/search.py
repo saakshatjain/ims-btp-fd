@@ -172,7 +172,7 @@ class RAGSearch:
                 print("[DEBUG] notice_ocr truncated:", str(c.get("notice_ocr"))[:200].replace("\n", " "))
             print("=" * 80)
 
-    def _build_prompt(self, query: str, selected_chunks: list) -> str:
+    def _build_prompt(self, query: str, selected_chunks: list, **kwargs) -> str:
         chunk_blocks = []
         for i, c in enumerate(selected_chunks, start=1):
             chunk_text = (c.get("chunk_text") or "").strip()
@@ -257,7 +257,7 @@ class RAGSearch:
         else:
             context_text = chunk_section
 
-        return build_base_prompt(context_text, query)
+        return build_base_prompt(context_text, query, answer_style=kwargs.get("answer_style", "detailed"))
 
     def _parse_sources_from_response(self, response: str) -> dict:
         def extract_json_objects(text):
@@ -384,7 +384,7 @@ class RAGSearch:
             f"Groq invoke failed after trying {attempts} keys. last error: {last_exception}"
         )
 
-    def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 100) -> dict:
+    def search_and_generate(self, query: str, top_k: int = 10, prefetch_k: int = 100, answer_style: str = "detailed") -> dict:
         # --- QUERY TRANSFORMATION ---
         optimized_query = query
         transform_prompt = f"Extract the core search intent from the following question to query a document database. Return ONLY the relevant keywords. No filler words or explanation. Question: {query}"
@@ -408,7 +408,7 @@ class RAGSearch:
         if not selected:
             return {"answer": "No relevant documents found after selection.", "sources": [], "suggested_follow_up": []}
 
-        prompt = self._build_prompt(query, selected)
+        prompt = self._build_prompt(query, selected, answer_style=answer_style)
 
         try:
             answer = self._call_llm(prompt)
@@ -438,7 +438,7 @@ class RAGSearch:
                 for c in selected:
                     if "notice_ocr" in c:
                         c["notice_ocr"] = None
-                prompt2 = self._build_prompt(query, selected)
+                prompt2 = self._build_prompt(query, selected, answer_style=answer_style)
                 try:
                     answer = self._call_llm(prompt2)
                     parsed = self._parse_sources_from_response(answer)

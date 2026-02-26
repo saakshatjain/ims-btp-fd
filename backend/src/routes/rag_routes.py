@@ -32,6 +32,7 @@ rag = RAGSearch()
 class QueryRequest(BaseModel):
     query: str
     deep_search: Optional[bool] = False
+    answer_style: Optional[str] = "detailed"
 
 class FeedbackRequest(BaseModel):
     message_id: str
@@ -63,7 +64,7 @@ def query_rag(payload: QueryRequest):
     try:
         top_k = 40 if payload.deep_search else 20
         prefetch_k = 100 if payload.deep_search else 50
-        result = rag.search_and_generate(query_text, top_k=top_k, prefetch_k=prefetch_k)
+        result = rag.search_and_generate(query_text, top_k=top_k, prefetch_k=prefetch_k, answer_style=payload.answer_style)
         
         # Extract answer, sources, and suggested follow-ups
         answer = result.get("answer", "No answer generated.")

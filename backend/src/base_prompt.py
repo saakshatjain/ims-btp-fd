@@ -1,10 +1,15 @@
 # src/base_prompt.py
 
-def build_base_prompt(context_text: str, query: str) -> str:
+def build_base_prompt(context_text: str, query: str, answer_style: str = "detailed") -> str:
     """
     Builds the complete LLM prompt for notice-based question answering.
     Ensures the answer is returned in strict JSON format without Markdown styling.
     """
+    
+    style_instruction = "Provide a comprehensive and thoroughly detailed explanation."
+    if answer_style == "precise":
+        style_instruction = "Provide an extremely concise, direct, and short answer without any fluff."
+        
 
     return f"""
 You are a helpful assistant for university notices. Answer the user's question using ONLY the provided context.
@@ -16,7 +21,7 @@ You are a helpful assistant for university notices. Answer the user's question u
 4. NEWLINES: Use literal \\n characters for line breaks within the JSON string.
 
 *** ANSWERING RULES ***
-1. Include all specific details found in the context (Dates, Time, Venue, Batches, Roll Numbers).
+1. Include all specific details found in the context (Dates, Time, Venue, Batches, Roll Numbers). {style_instruction}
 2. Filter out irrelevant info (e.g., if asked for Theory exams, do not list Practical dates).
 3. If the answer is not in the context, strictly return "I don't know based on the available notices."
 4. If the query is empty/meaningless, strictly return "No specific question to answer."

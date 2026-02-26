@@ -10,11 +10,71 @@ export default function ChatFrontend() {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState("Thinking...");
   const containerRef = useRef(null);
   const [copiedLink, setCopiedLink] = useState(null);
 
+  /* ---------------------- LOCAL STORAGE CHATS ---------------------- */
+  const [chats, setChats] = useState(() => {
+    const saved = localStorage.getItem("ims_chats");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeChatId, setActiveChatId] = useState(null);
+
+  // Load active chat messages when activeChatId changes
+  useEffect(() => {
+    if (activeChatId) {
+      const chat = chats.find((c) => c.id === activeChatId);
+      if (chat) setMessages(chat.messages || []);
+    } else {
+      setMessages([]);
+    }
+  }, [activeChatId]);
+
+  // Sync messages to current active chat and local storage
+  useEffect(() => {
+    if (!activeChatId && messages.length > 0) {
+      // Create new chat
+      const newChat = {
+        id: Date.now().toString(),
+        title: "New Chat",
+        messages,
+      };
+      setChats((prev) => [newChat, ...prev]);
+      setActiveChatId(newChat.id);
+    } else if (activeChatId) {
+      // Update existing chat
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === activeChatId) {
+            // generate title from first user message if available
+            const firstUserMsg = messages.find((m) => m.role === "user");
+            const title = firstUserMsg
+              ? firstUserMsg.text.substring(0, 30) + "..."
+              : "New Chat";
+            return { ...c, title, messages };
+          }
+          return c;
+        }),
+      );
+    }
+  }, [messages]);
+
+  // Sync global chats array to localStorage on every change
+  useEffect(() => {
+    localStorage.setItem("ims_chats", JSON.stringify(chats));
+  }, [chats]);
+
+  function startNewChat() {
+    setActiveChatId(null);
+    setMessages([]);
+  }
+
   /* ---------------------- SETTINGS STATE ---------------------- */
+  const [showSettings, setShowSettings] = useState(false);
   const [enableRecommendations, setEnableRecommendations] = useState(true);
+  const [theme, setTheme] = useState("dark");
+  const [answerStyle, setAnswerStyle] = useState("detailed"); // "detailed" | "precise"
 
   /* ---------------------- FEEDBACK STATE ---------------------- */
   const [feedbackOpenFor, setFeedbackOpenFor] = useState(null);
@@ -235,6 +295,19 @@ export default function ChatFrontend() {
 
     setMessages((m) => [...m, userMsg]);
     setLoading(true);
+    setLoadingText("Thinking...");
+
+    const progressTexts = [
+      "Thinking...",
+      "Retrieving docs...",
+      "Reading notices...",
+      "Formatting answer...",
+    ];
+    let progressIdx = 0;
+    const progressInterval = setInterval(() => {
+      progressIdx = (progressIdx + 1) % progressTexts.length;
+      setLoadingText(progressTexts[progressIdx]);
+    }, 2000);
 
     try {
       const resp = await fetch(API_URL, {
@@ -243,6 +316,7 @@ export default function ChatFrontend() {
         body: JSON.stringify({
           query: trimmed,
           deep_search: overrideDeepSearch,
+          answer_style: answerStyle,
         }),
       });
 
@@ -284,6 +358,8 @@ export default function ChatFrontend() {
         });
       }
 
+      clearInterval(progressInterval);
+
       setMessages((m) => [
         ...m,
         {
@@ -297,6 +373,7 @@ export default function ChatFrontend() {
         },
       ]);
     } catch (err) {
+      clearInterval(progressInterval);
       //console.log(err);
       setMessages((m) => [
         ...m,
@@ -338,12 +415,38 @@ export default function ChatFrontend() {
     }
   }, [messages, loading]);
 
+  /* ---------------------- Setup Dynamic Theme Styles ---------------------- */
+  const isLight = theme === "light";
+
+  const dynamicStyles = {
+    pageBg: isLight
+      ? "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)"
+      : "linear-gradient(135deg, #0f172a 0%, #020617 100%)",
+    pageText: isLight ? "#1e293b" : "#f1f5f9",
+    containerBg: isLight ? "#ffffff" : "#1e293b",
+    borderColor: isLight ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.05)",
+    sidebarBg: isLight ? "rgba(241, 245, 249, 0.8)" : "rgba(15, 23, 42, 0.6)",
+    botBubbleBg: isLight ? "#f1f5f9" : "rgba(30, 41, 59, 0.7)",
+    botBubbleBorder: isLight
+      ? "1px solid #e2e8f0"
+      : "1px solid rgba(255,255,255,0.05)",
+    inputBg: isLight ? "#f8fafc" : "#0f172a",
+    inputText: isLight ? "#0f172a" : "#f1f5f9",
+    primaryAccent: "#3b82f6",
+  };
+
   /* ---------------------- Render ---------------------- */
 
   return (
     <>
       <Analytics />
-      <div style={styles.page}>
+      <div
+        style={{
+          ...styles.page,
+          background: dynamicStyles.pageBg,
+          color: dynamicStyles.pageText,
+        }}
+      >
         <style>
           {`
           @keyframes slideIn {
@@ -356,12 +459,26 @@ export default function ChatFrontend() {
         `}
         </style>
 
-        <div style={styles.container}>
-          <div style={styles.sidebar}>
-            <div style={styles.sidebarHeader}>
+        <div
+          style={{
+            ...styles.container,
+            background: dynamicStyles.containerBg,
+            borderColor: dynamicStyles.borderColor,
+          }}
+        >
+          <div
+            style={{
+              ...styles.sidebar,
+              background: dynamicStyles.sidebarBg,
+              borderRight: `1px solid ${dynamicStyles.borderColor}`,
+            }}
+          >
+            <div
+              style={{ ...styles.sidebarHeader, color: dynamicStyles.pageText }}
+            >
               <span
                 style={{
-                  color: "#3b82f6",
+                  color: dynamicStyles.primaryAccent,
                   fontWeight: "bold",
                   fontSize: "22px",
                 }}
@@ -372,30 +489,195 @@ export default function ChatFrontend() {
             </div>
 
             <button
-              style={styles.sidebarNewChatBtn}
-              onClick={() => setMessages([])}
+              style={{
+                ...styles.sidebarNewChatBtn,
+                color: dynamicStyles.pageText,
+                borderColor: dynamicStyles.borderColor,
+              }}
+              onClick={startNewChat}
             >
               + New Chat
             </button>
 
-            <div style={styles.sidebarBottom}>
-              <label style={styles.sidebarLabel}>
-                <input
-                  type="checkbox"
-                  checked={enableRecommendations}
-                  onChange={(e) => setEnableRecommendations(e.target.checked)}
-                  style={styles.checkbox}
-                />
-                Recommendations
-              </label>
+            <div style={{ flex: 1, overflowY: "auto", marginBottom: "20px" }}>
+              {chats.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    padding: "10px",
+                    marginBottom: "8px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    background:
+                      activeChatId === c.id
+                        ? isLight
+                          ? "#e2e8f0"
+                          : "rgba(255,255,255,0.1)"
+                        : "transparent",
+                    color: dynamicStyles.pageText,
+                  }}
+                  onClick={() => setActiveChatId(c.id)}
+                >
+                  {c.title || "New Chat"}
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                ...styles.sidebarBottom,
+                borderTop: `1px solid ${dynamicStyles.borderColor}`,
+              }}
+            >
+              <button
+                style={{
+                  ...styles.settingsBtn,
+                  width: "100%",
+                  justifyContent: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+                onClick={() => setShowSettings(true)}
+              >
+                ⚙ Settings
+              </button>
             </div>
           </div>
 
           <div style={styles.mainContent}>
+            {showSettings && (
+              <div
+                style={styles.modalBackdrop}
+                onClick={() => setShowSettings(false)}
+              >
+                <div
+                  style={{
+                    ...styles.modal,
+                    background: dynamicStyles.containerBg,
+                    color: dynamicStyles.pageText,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={styles.modalHeader}>
+                    <h3 style={styles.modalTitle}>Settings</h3>
+                    <button
+                      style={styles.closeModalBtn}
+                      onClick={() => setShowSettings(false)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={styles.modalSection}>
+                    <label
+                      style={{
+                        ...styles.settingLabel,
+                        color: dynamicStyles.pageText,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={enableRecommendations}
+                        onChange={(e) =>
+                          setEnableRecommendations(e.target.checked)
+                        }
+                        style={styles.checkbox}
+                      />
+                      Enable Recommendations
+                    </label>
+                  </div>
+
+                  <div style={styles.modalSection}>
+                    <span style={styles.modalLabel}>Theme</span>
+                    <div style={styles.satisfiedRow}>
+                      <button
+                        style={
+                          theme === "light"
+                            ? {
+                                ...styles.satBtnActiveYes,
+                                background: dynamicStyles.primaryAccent,
+                              }
+                            : {
+                                ...styles.satBtn,
+                                borderColor: dynamicStyles.borderColor,
+                                color: dynamicStyles.pageText,
+                              }
+                        }
+                        onClick={() => setTheme("light")}
+                      >
+                        Light
+                      </button>
+                      <button
+                        style={
+                          theme === "dark"
+                            ? {
+                                ...styles.satBtnActiveYes,
+                                background: dynamicStyles.primaryAccent,
+                              }
+                            : {
+                                ...styles.satBtn,
+                                borderColor: dynamicStyles.borderColor,
+                                color: dynamicStyles.pageText,
+                              }
+                        }
+                        onClick={() => setTheme("dark")}
+                      >
+                        Dark
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.modalSection}>
+                    <span style={styles.modalLabel}>Answer Style</span>
+                    <div style={styles.satisfiedRow}>
+                      <button
+                        style={
+                          answerStyle === "detailed"
+                            ? {
+                                ...styles.satBtnActiveYes,
+                                background: dynamicStyles.primaryAccent,
+                              }
+                            : {
+                                ...styles.satBtn,
+                                borderColor: dynamicStyles.borderColor,
+                                color: dynamicStyles.pageText,
+                              }
+                        }
+                        onClick={() => setAnswerStyle("detailed")}
+                      >
+                        Detailed
+                      </button>
+                      <button
+                        style={
+                          answerStyle === "precise"
+                            ? {
+                                ...styles.satBtnActiveYes,
+                                background: dynamicStyles.primaryAccent,
+                              }
+                            : {
+                                ...styles.satBtn,
+                                borderColor: dynamicStyles.borderColor,
+                                color: dynamicStyles.pageText,
+                              }
+                        }
+                        onClick={() => setAnswerStyle("precise")}
+                      >
+                        Precise
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div ref={containerRef} style={styles.chatArea}>
               {messages.length === 0 && (
                 <div style={styles.emptyState}>
-                  <h2 style={{ color: "#e2e8f0", marginBottom: 8 }}>
+                  <h2
+                    style={{ color: dynamicStyles.pageText, marginBottom: 8 }}
+                  >
                     How can I help you?
                   </h2>
                 </div>
@@ -412,7 +694,14 @@ export default function ChatFrontend() {
                 >
                   <div
                     style={
-                      m.role === "user" ? styles.userBubble : styles.botBubble
+                      m.role === "user"
+                        ? styles.userBubble
+                        : {
+                            ...styles.botBubble,
+                            background: dynamicStyles.botBubbleBg,
+                            border: dynamicStyles.botBubbleBorder,
+                            color: dynamicStyles.pageText,
+                          }
                     }
                   >
                     <div style={styles.messageTextInner}>
@@ -571,11 +860,41 @@ export default function ChatFrontend() {
 
               {loading && (
                 <div style={styles.messageWrapper}>
-                  <div style={{ ...styles.botBubble, padding: "12px 20px" }}>
-                    <div style={styles.typingIndicator}>
-                      <div style={{ ...styles.dot, animationDelay: "0s" }} />
-                      <div style={{ ...styles.dot, animationDelay: "0.2s" }} />
-                      <div style={{ ...styles.dot, animationDelay: "0.4s" }} />
+                  <div
+                    style={{
+                      ...styles.botBubble,
+                      background: dynamicStyles.botBubbleBg,
+                      border: dynamicStyles.botBubbleBorder,
+                      color: dynamicStyles.pageText,
+                      padding: "12px 20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        ...styles.typingIndicator,
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "14px",
+                          fontStyle: "italic",
+                          opacity: 0.8,
+                        }}
+                      >
+                        {loadingText}
+                      </span>
+                      <div style={{ display: "flex", gap: "4px" }}>
+                        <div style={{ ...styles.dot, animationDelay: "0s" }} />
+                        <div
+                          style={{ ...styles.dot, animationDelay: "0.2s" }}
+                        />
+                        <div
+                          style={{ ...styles.dot, animationDelay: "0.4s" }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -585,12 +904,15 @@ export default function ChatFrontend() {
             <div style={styles.inputArea}>
               <form style={styles.form} onSubmit={sendQuery}>
                 <input
-                  placeholder={
-                    loading ? "Thinking..." : "Type your question..."
-                  }
+                  placeholder={loading ? loadingText : "Type your question..."}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  style={styles.input}
+                  style={{
+                    ...styles.input,
+                    background: dynamicStyles.inputBg,
+                    color: dynamicStyles.inputText,
+                    borderColor: dynamicStyles.borderColor,
+                  }}
                   disabled={loading}
                 />
                 <button
@@ -623,7 +945,14 @@ export default function ChatFrontend() {
               style={styles.modalBackdrop}
               onClick={() => setFeedbackOpenFor(null)}
             >
-              <div style={styles.modal} onClick={(ev) => ev.stopPropagation()}>
+              <div
+                style={{
+                  ...styles.modal,
+                  background: dynamicStyles.containerBg,
+                  color: dynamicStyles.pageText,
+                }}
+                onClick={(ev) => ev.stopPropagation()}
+              >
                 <div style={styles.modalHeader}>
                   <h3 style={styles.modalTitle}>Feedback</h3>
                   <button
@@ -635,7 +964,12 @@ export default function ChatFrontend() {
                 </div>
 
                 {/* Updated Text */}
-                <p style={styles.modalSub}>
+                <p
+                  style={{
+                    ...styles.modalSub,
+                    color: isLight ? "#475569" : "#94a3b8",
+                  }}
+                >
                   Feedback is collected for research and analysis.
                 </p>
 
