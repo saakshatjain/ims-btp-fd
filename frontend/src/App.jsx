@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
+import { Send, Square, Bot, User as UserIcon, Settings, Plus, X, Menu, Copy, Check, MessageSquare } from "lucide-react";
 import nsutLogo from "../nsutlogo.png";
 
 const API_URL =
@@ -596,6 +597,7 @@ export default function ChatFrontend() {
             borderRight: `1px solid ${t.border}`,
             display: "flex",
             flexDirection: "column",
+            overflow: "hidden", /* FIXED: Explicit boundary for Settings button */
             padding: "16px 12px",
             flexShrink: 0,
             position: isMobile ? "fixed" : "relative",
@@ -648,7 +650,7 @@ export default function ChatFrontend() {
             }
             onClick={startNewChat}
           >
-            <span style={{ fontSize: "18px" }}>+</span> New Chat
+            <Plus size={18} style={{ marginRight: 4 }} /> New Chat
           </button>
 
           <div
@@ -750,7 +752,7 @@ export default function ChatFrontend() {
               }
               onClick={() => setShowSettings(true)}
             >
-              <span style={{ fontSize: "16px" }}>⚙</span> Settings
+              <Settings size={16} /> Settings
             </button>
           </div>
 
@@ -833,20 +835,7 @@ export default function ChatFrontend() {
                 (e.currentTarget.style.background = "transparent")
               }
             >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="3" y1="12" x2="21" y2="12"></line>
-                <line x1="3" y1="6" x2="21" y2="6"></line>
-                <line x1="3" y1="18" x2="21" y2="18"></line>
-              </svg>
+              <Menu size={22} color={t.textPrimary} />
             </button>
             <span
               style={{
@@ -931,29 +920,7 @@ export default function ChatFrontend() {
                             marginTop: "4px",
                           }}
                         >
-                          <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M12 8V4H8"></path>
-                            <rect
-                              width="16"
-                              height="12"
-                              x="4"
-                              y="8"
-                              rx="2"
-                            ></rect>
-                            <path d="M2 14h2"></path>
-                            <path d="M20 14h2"></path>
-                            <path d="M15 13v2"></path>
-                            <path d="M9 13v2"></path>
-                          </svg>
+                          <Bot size={20} color={t.bgMain} />
                         </div>
                       ) : (
                         <div
@@ -970,19 +937,7 @@ export default function ChatFrontend() {
                             marginTop: "4px",
                           }}
                         >
-                          <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="12" cy="7" r="4"></circle>
-                          </svg>
+                          <UserIcon size={20} color={t.textPrimary} />
                         </div>
                       )}
 
@@ -1236,7 +1191,7 @@ export default function ChatFrontend() {
                     }}
                   >
                     <div style={{ width: 30, height: 30, borderRadius: "50%", background: t.textPrimary, color: t.bgMain, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: "4px" }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.bgMain} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg>
+                      <Bot size={20} color={t.bgMain} />
                     </div>
                     <div
                       style={{
@@ -1315,18 +1270,7 @@ export default function ChatFrontend() {
                       cursor: "pointer",
                     }}
                   >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={t.bgMain}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
-                    </svg>
+                    <Square size={16} fill={t.bgMain} color={t.bgMain} />
                   </button>
                 ) : (
                   <button
@@ -1349,20 +1293,7 @@ export default function ChatFrontend() {
                       transition: "0.2s",
                     }}
                   >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={t.bgMain}
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ marginLeft: "-2px" }}
-                    >
-                      <line x1="22" y1="2" x2="11" y2="13"></line>
-                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                    </svg>
+                    <Send size={18} fill={t.bgMain} color={t.bgMain} style={{ marginLeft: "-2px" }} />
                   </button>
                 )}
               </form>
