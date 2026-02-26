@@ -73,7 +73,8 @@ class RAGSearch:
             raise ValueError("No Groq API keys found. Set GROQ_API_KEY in .env")
 
         self.groq_api_keys = keys
-        self.current_key_index = 0
+        import time
+        self.current_key_index = int(time.time()) % len(self.groq_api_keys)
         self.llm_model_name = llm_model
 
         print("[INFO] Loaded Groq API keys")
@@ -82,7 +83,7 @@ class RAGSearch:
 
         self._init_llm_with_current_key()
         print(
-            f"[INFO] Initialized Groq LLM {llm_model} using key index 0 "
+            f"[INFO] Initialized Groq LLM {llm_model} using key index {self.current_key_index} "
             f"of {len(self.groq_api_keys)} available keys"
         )
 

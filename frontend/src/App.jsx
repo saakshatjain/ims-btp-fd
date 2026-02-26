@@ -8,114 +8,104 @@ const FEEDBACK_URL =
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingText, setLoadingText] = useState("Thinking...");
-  const containerRef = useRef(null);
-  const [copiedLink, setCopiedLink] = useState(null);
+  const [activeChatId, setActiveChatId] = useState(null);
 
-  /* ---------------------- LOCAL STORAGE CHATS ---------------------- */
+  // Storage for all chats: { id, title, messages: [] }
   const [chats, setChats] = useState(() => {
     const saved = localStorage.getItem("ims_chats");
     return saved ? JSON.parse(saved) : [];
   });
-  const [activeChatId, setActiveChatId] = useState(null);
 
-  // Load active chat messages when activeChatId changes
-  useEffect(() => {
-    if (activeChatId) {
-      const chat = chats.find((c) => c.id === activeChatId);
-      if (chat) setMessages(chat.messages || []);
-    } else {
-      setMessages([]);
-    }
-  }, [activeChatId]);
+  // Track active fetch controllers by chat ID
+  const abortControllers = useRef({});
 
-  // Sync messages to current active chat and local storage
-  useEffect(() => {
-    if (!activeChatId && messages.length > 0) {
-      // Create new chat
-      const newChat = {
-        id: Date.now().toString(),
-        title: "New Chat",
-        messages,
-      };
-      setChats((prev) => [newChat, ...prev]);
-      setActiveChatId(newChat.id);
-    } else if (activeChatId) {
-      // Update existing chat
-      setChats((prev) =>
-        prev.map((c) => {
-          if (c.id === activeChatId) {
-            // generate title from first user message if available
-            const firstUserMsg = messages.find((m) => m.role === "user");
-            const title = firstUserMsg
-              ? firstUserMsg.text.substring(0, 30) + "..."
-              : "New Chat";
-            return { ...c, title, messages };
-          }
-          return c;
-        }),
-      );
-    }
-  }, [messages]);
-
-  // Sync global chats array to localStorage on every change
-  useEffect(() => {
-    localStorage.setItem("ims_chats", JSON.stringify(chats));
-  }, [chats]);
-
-  function startNewChat() {
-    setActiveChatId(null);
-    setMessages([]);
-  }
-
-  /* ---------------------- SETTINGS STATE ---------------------- */
+  // Settings
   const [showSettings, setShowSettings] = useState(false);
   const [enableRecommendations, setEnableRecommendations] = useState(true);
   const [theme, setTheme] = useState("dark");
   const [answerStyle, setAnswerStyle] = useState("detailed"); // "detailed" | "precise"
 
-  /* ---------------------- FEEDBACK STATE ---------------------- */
+  const containerRef = useRef(null);
+  const [copiedLink, setCopiedLink] = useState(null);
   const [feedbackOpenFor, setFeedbackOpenFor] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState({
-    answer: null, // 1..5
-    source: null, // 1..5
-    satisfied: null, // boolean
+    answer: null,
+    source: null,
+    satisfied: null,
   });
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
-  /* ---------------------- Helpers ---------------------- */
+  // Sync global chats to localStorage
+  useEffect(() => {
+    localStorage.setItem("ims_chats", JSON.stringify(chats));
+  }, [chats]);
 
-  function extractLinksFromRaw(raw) {
-    if (!raw) return [];
-    const links = [];
-    const mdRegex = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi;
-    let m;
-    while ((m = mdRegex.exec(raw)) !== null) {
-      try {
-        const url = m[2];
-        if (!links.includes(url)) links.push(url);
-      } catch (e) {
-        console.error(e);
-      }
+  // Scroll to bottom
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTo({
+        top: containerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
-    const urlRegex = /https?:\/\/[^\s)]+/gi;
-    while ((m = urlRegex.exec(raw)) !== null) {
-      if (!links.includes(m[0])) links.push(m[0]);
-    }
-    if (links.length === 0 && raw) {
-      const words = raw.split(/\s+/);
-      for (const w of words) {
-        if (w.toLowerCase().startsWith("http")) {
-          const clean = w.replace(/[",.;:]*$/, "");
-          if (!links.includes(clean)) links.push(clean);
-        }
-      }
-    }
-    return links;
+  }, [chats, activeChatId]);
+
+  /* ---------------------- Data Access ---------------------- */
+  const activeChat = chats.find((c) => c.id === activeChatId);
+  const messages = activeChat ? activeChat.messages : [];
+  // Loading is strictly tracked per chat now
+  const isLoading = activeChat ? activeChat.loading : false;
+  const loadingText = activeChat ? activeChat.loadingText : "";
+
+  /* ---------------------- Chat Management ---------------------- */
+  function startNewChat() {
+    // If we're already on an empty new chat, don't do anything
+    if (!activeChatId && messages.length === 0) return;
+
+    // Switch to null active chat (acting as a draft space until first message)
+    setActiveChatId(null);
   }
 
+  function deleteChat(e, idToRemove) {
+    e.stopPropagation();
+    setChats((prev) => prev.filter((c) => c.id !== idToRemove));
+    if (activeChatId === idToRemove) {
+      setActiveChatId(null);
+    }
+  }
+
+  /* ---------------------- Abort Logic ---------------------- */
+  function handleStop() {
+    if (!activeChatId) return;
+    if (abortControllers.current[activeChatId]) {
+      abortControllers.current[activeChatId].abort();
+      delete abortControllers.current[activeChatId];
+    }
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === activeChatId) {
+          return {
+            ...c,
+            loading: false,
+            messages: [
+              ...c.messages,
+              {
+                id: Date.now() + "_err",
+                role: "bot",
+                text: "Response stopped.",
+                links: [],
+                showSources: false,
+                ts: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        return c;
+      }),
+    );
+  }
+
+  /* ---------------------- Link Helpers ---------------------- */
   function cleanAndUniqueLinks(rawLinks) {
     if (!rawLinks?.length) return [];
     const unique = new Map();
@@ -143,6 +133,11 @@ export default function ChatFrontend() {
     }
   }
 
+  function stripFilenamesBeforeLinks(raw) {
+    if (!raw) return raw;
+    return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
+  }
+
   function shortenUrl(url) {
     try {
       const u = new URL(url);
@@ -165,20 +160,33 @@ export default function ChatFrontend() {
     }
   }
 
-  /* ---------------------- Feedback Helpers ---------------------- */
+  function toggleSources(chatId, messageId) {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId ? { ...m, showSources: !m.showSources } : m,
+            ),
+          };
+        }
+        return c;
+      }),
+    );
+  }
 
+  /* ---------------------- Feedback Helpers ---------------------- */
   function shouldShowFeedback(m) {
     if (!m || m.role !== "bot") return false;
-    // Removed the "feedbackSubmitted" check here so we can show the "Submitted" badge
     const txt = (m.text || "").toLowerCase();
-    // Don't show feedback for error responses or edge cases
     if (
       txt.includes("internal error") ||
+      txt.includes("response stopped") ||
       txt.includes("i don't know") ||
       txt.includes("no specific question")
     )
       return false;
-    // Don't show feedback if there are no sources
     if (!m.links || m.links.length === 0) return false;
     return true;
   }
@@ -189,44 +197,45 @@ export default function ChatFrontend() {
     if (
       txt.includes("internal error") ||
       txt.includes("i don't know") ||
-      txt.includes("no specific question")
+      txt.includes("no specific question") ||
+      txt.includes("response stopped")
     )
       return false;
     return true;
   }
 
   function openFeedbackPopupFor(m) {
-    setFeedbackOpenFor(m.id);
+    setFeedbackOpenFor({ msgId: m.id, chatId: activeChatId });
     setFeedbackDraft({ answer: null, source: null, satisfied: null });
   }
 
-  async function submitFeedback(messageObj) {
+  async function submitFeedback() {
+    if (!feedbackOpenFor) return;
+    const chat = chats.find((c) => c.id === feedbackOpenFor.chatId);
+    if (!chat) return;
+    const messageObj = chat.messages.find(
+      (m) => m.id === feedbackOpenFor.msgId,
+    );
     if (!messageObj) return;
 
     const ans = Number(feedbackDraft.answer);
     const src = Number(feedbackDraft.source);
     const sat = feedbackDraft.satisfied;
 
-    if (!ans || ans < 1 || ans > 5) {
-      alert("Please rate the Answer (1–5).");
-      return;
-    }
-    if (!src || src < 1 || src > 5) {
-      alert("Please rate the Sources (1–5).");
-      return;
-    }
-    if (typeof sat !== "boolean") {
-      alert("Please indicate if you are satisfied.");
-      return;
-    }
+    if (!ans || ans < 1 || ans > 5)
+      return alert("Please rate the Answer (1–5).");
+    if (!src || src < 1 || src > 5)
+      return alert("Please rate the Sources (1–5).");
+    if (typeof sat !== "boolean")
+      return alert("Please indicate if you are satisfied.");
 
     const payload = {
       message_id: messageObj.id,
       prompt: (() => {
-        const idx = messages.findIndex((x) => x.id === messageObj.id);
+        const idx = chat.messages.findIndex((x) => x.id === messageObj.id);
         if (idx > 0) {
           for (let i = idx - 1; i >= 0; i--) {
-            if (messages[i].role === "user") return messages[i].text;
+            if (chat.messages[i].role === "user") return chat.messages[i].text;
           }
         }
         return "";
@@ -248,16 +257,23 @@ export default function ChatFrontend() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageObj.id
-            ? { ...m, feedbackSubmitted: true, feedback: payload }
-            : m,
-        ),
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === feedbackOpenFor.chatId) {
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageObj.id
+                  ? { ...m, feedbackSubmitted: true, feedback: payload }
+                  : m,
+              ),
+            };
+          }
+          return c;
+        }),
       );
       setFeedbackOpenFor(null);
     } catch (err) {
-      console.error("Feedback failed", err);
       alert("Failed to submit feedback.");
     } finally {
       setFeedbackLoading(false);
@@ -265,14 +281,24 @@ export default function ChatFrontend() {
   }
 
   /* ---------------------- Networking ---------------------- */
+  async function sendQuery(e) {
+    e && e.preventDefault();
+    if (!query.trim()) return;
+    const text = query;
+    setQuery("");
+    await submit(text);
+  }
 
   async function handleRetry(messageId) {
-    const idx = messages.findIndex((m) => m.id === messageId);
+    if (!activeChatId) return;
+    const chat = chats.find((c) => c.id === activeChatId);
+    if (!chat) return;
+    const idx = chat.messages.findIndex((m) => m.id === messageId);
     if (idx < 0) return;
     let userQuery = "";
     for (let i = idx - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        userQuery = messages[i].text;
+      if (chat.messages[i].role === "user") {
+        userQuery = chat.messages[i].text;
         break;
       }
     }
@@ -284,6 +310,18 @@ export default function ChatFrontend() {
   async function submit(text, overrideDeepSearch = false) {
     const trimmed = text?.trim();
     if (!trimmed) return;
+
+    // Resolve what chat this goes to
+    let targetChatId = activeChatId;
+    let isNewChat = false;
+
+    // If no active chat, create it on the fly
+    if (!targetChatId) {
+      targetChatId = Date.now().toString();
+      isNewChat = true;
+      setActiveChatId(targetChatId);
+    }
+
     const userId = Date.now() + "_u";
     const userMsg = {
       id: userId,
@@ -293,21 +331,48 @@ export default function ChatFrontend() {
       ts: new Date().toISOString(),
     };
 
-    setMessages((m) => [...m, userMsg]);
-    setLoading(true);
-    setLoadingText("Thinking...");
+    // Initialize/Update the Chat State
+    setChats((prev) => {
+      if (isNewChat) {
+        return [
+          {
+            id: targetChatId,
+            title: trimmed.substring(0, 30) + "...",
+            messages: [userMsg],
+            loading: true,
+            loadingText: "Thinking...",
+          },
+          ...prev,
+        ];
+      }
+      return prev.map((c) => {
+        if (c.id === targetChatId) {
+          return {
+            ...c,
+            messages: [...c.messages, userMsg],
+            loading: true,
+            loadingText: "Thinking...",
+          };
+        }
+        return c;
+      });
+    });
 
-    const progressTexts = [
-      "Thinking...",
-      "Retrieving docs...",
-      "Reading notices...",
-      "Formatting answer...",
-    ];
-    let progressIdx = 0;
-    const progressInterval = setInterval(() => {
-      progressIdx = (progressIdx + 1) % progressTexts.length;
-      setLoadingText(progressTexts[progressIdx]);
-    }, 2000);
+    // Since fetch starts immediately, transition to "Retrieving docs..."
+    // We add a tiny delay just to let the "Thinking..." state render for a split-second
+    setTimeout(() => {
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === targetChatId
+            ? { ...c, loadingText: "Retrieving docs..." }
+            : c,
+        ),
+      );
+    }, 50);
+
+    // Abort Controller Setup
+    const controller = new AbortController();
+    abortControllers.current[targetChatId] = controller;
 
     try {
       const resp = await fetch(API_URL, {
@@ -318,10 +383,19 @@ export default function ChatFrontend() {
           deep_search: overrideDeepSearch,
           answer_style: answerStyle,
         }),
+        signal: controller.signal,
       });
 
       if (!resp.ok) throw new Error("Backend error");
-      //console.log(resp);
+
+      // Response headers received; body is downloading/parsing
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === targetChatId
+            ? { ...c, loadingText: "Formatting answer..." }
+            : c,
+        ),
+      );
 
       let answer = "";
       let sources = [];
@@ -331,7 +405,6 @@ export default function ChatFrontend() {
       if (contentType.includes("application/json")) {
         const j = await resp.json();
         answer = j.answer || j.output || j.text || "";
-        // Parse sources from API response - should be array of objects with source_link
         sources = j.sources || [];
         suggestedFollowUp = j.suggested_follow_up || [];
       } else {
@@ -343,12 +416,10 @@ export default function ChatFrontend() {
 
       answer = stripFilenamesBeforeLinks(answer);
 
-      // Convert API sources to link format - only if sources > 0
       const normalized = [];
       if (Array.isArray(sources) && sources.length > 0) {
         const seen = new Set();
         sources.forEach((src) => {
-          // Handle both formats: {source_link: "..."} or {link: "..."}
           let link = src.source_link || src.link || "";
           link = normalizeLink(link);
           if (link && !seen.has(link)) {
@@ -358,355 +429,364 @@ export default function ChatFrontend() {
         });
       }
 
-      clearInterval(progressInterval);
+      const botMsg = {
+        id: Date.now() + "_b",
+        role: "bot",
+        text: answer || "No content.",
+        links: normalized,
+        suggestedFollowUp: suggestedFollowUp,
+        showSources: false,
+        ts: new Date().toISOString(),
+      };
 
-      setMessages((m) => [
-        ...m,
-        {
-          id: Date.now() + "_b",
-          role: "bot",
-          text: answer || "No content.",
-          links: normalized,
-          suggestedFollowUp: suggestedFollowUp,
-          showSources: false,
-          ts: new Date().toISOString(),
-        },
-      ]);
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === targetChatId) {
+            return { ...c, loading: false, messages: [...c.messages, botMsg] };
+          }
+          return c;
+        }),
+      );
     } catch (err) {
-      clearInterval(progressInterval);
-      //console.log(err);
-      setMessages((m) => [
-        ...m,
-        {
-          id: Date.now() + "_err",
-          role: "bot",
-          text: "An internal error occurred. Please try again later.",
-          links: [],
-          ts: new Date().toISOString(),
-        },
-      ]);
+      if (err.name === "AbortError") {
+        // Abort handled by handleStop
+        return;
+      }
+
+      const errMsgs = {
+        id: Date.now() + "_err",
+        role: "bot",
+        text: "[ERROR] Could not generate response. Please try again.",
+        links: [],
+        showSources: false,
+        ts: new Date().toISOString(),
+      };
+
+      setChats((prev) =>
+        prev.map((c) => {
+          if (c.id === targetChatId) {
+            return { ...c, loading: false, messages: [...c.messages, errMsgs] };
+          }
+          return c;
+        }),
+      );
     } finally {
-      setLoading(false);
+      if (abortControllers.current[targetChatId]) {
+        delete abortControllers.current[targetChatId];
+      }
     }
   }
-
-  async function sendQuery(e) {
-    e && e.preventDefault();
-    if (!query.trim()) return;
-    const text = query;
-    setQuery("");
-    await submit(text);
-  }
-
-  function toggleSources(id) {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === id ? { ...m, showSources: !m.showSources } : m,
-      ),
-    );
-  }
-
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTo({
-        top: containerRef.current.scrollHeight,
-        behavior: "smooth",
-      });
-    }
-  }, [messages, loading]);
 
   /* ---------------------- Setup Dynamic Theme Styles ---------------------- */
   const isLight = theme === "light";
 
-  const dynamicStyles = {
-    pageBg: isLight
-      ? "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)"
-      : "linear-gradient(135deg, #0f172a 0%, #020617 100%)",
-    pageText: isLight ? "#1e293b" : "#f1f5f9",
-    containerBg: isLight ? "#ffffff" : "#1e293b",
-    borderColor: isLight ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.05)",
-    sidebarBg: isLight ? "rgba(241, 245, 249, 0.8)" : "rgba(15, 23, 42, 0.6)",
-    botBubbleBg: isLight ? "#f1f5f9" : "rgba(30, 41, 59, 0.7)",
-    botBubbleBorder: isLight
-      ? "1px solid #e2e8f0"
-      : "1px solid rgba(255,255,255,0.05)",
-    inputBg: isLight ? "#f8fafc" : "#0f172a",
-    inputText: isLight ? "#0f172a" : "#f1f5f9",
-    primaryAccent: "#3b82f6",
+  // Clean Professional Chatbot Aesthetic
+  const t = {
+    bgApp: isLight ? "#fdfdfd" : "#212121",
+    bgSidebar: isLight ? "#f7f7f8" : "#171717",
+    bgMain: isLight ? "#ffffff" : "#212121",
+    textPrimary: isLight ? "#0d0d0d" : "#ececec",
+    textSecondary: isLight ? "#6b6b6b" : "#b4b4b4",
+    border: isLight ? "#e5e5e5" : "#424242",
+    accent: isLight ? "#000000" : "#ffffff", // ChatGPT like
+    accentInvert: isLight ? "#ffffff" : "#000000",
+    hoverBg: isLight ? "#ececec" : "#2f2f2f",
+    bubbleUser: isLight ? "#f4f4f4" : "#2f2f2f",
+    bubbleBot: "transparent",
+    inputBg: isLight ? "#f4f4f4" : "#2f2f2f",
   };
-
-  /* ---------------------- Render ---------------------- */
 
   return (
     <>
       <Analytics />
       <div
         style={{
-          ...styles.page,
-          background: dynamicStyles.pageBg,
-          color: dynamicStyles.pageText,
+          display: "flex",
+          height: "100vh",
+          width: "100vw",
+          background: t.bgApp,
+          color: t.textPrimary,
+          fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        <style>
-          {`
-          @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes pulse {
-            0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; }
-          }
-        `}
-        </style>
-
+        {/* Sidebar */}
         <div
           style={{
-            ...styles.container,
-            background: dynamicStyles.containerBg,
-            borderColor: dynamicStyles.borderColor,
+            width: "260px",
+            background: t.bgSidebar,
+            borderRight: `1px solid ${t.border}`,
+            display: "flex",
+            flexDirection: "column",
+            padding: "16px 12px",
+            flexShrink: 0,
           }}
         >
           <div
             style={{
-              ...styles.sidebar,
-              background: dynamicStyles.sidebarBg,
-              borderRight: `1px solid ${dynamicStyles.borderColor}`,
+              padding: "0 8px",
+              marginBottom: "20px",
+              fontSize: "16px",
+              fontWeight: "600",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
             }}
           >
             <div
-              style={{ ...styles.sidebarHeader, color: dynamicStyles.pageText }}
-            >
-              <span
-                style={{
-                  color: dynamicStyles.primaryAccent,
-                  fontWeight: "bold",
-                  fontSize: "22px",
-                }}
-              >
-                IMS
-              </span>{" "}
-              Chatbot
-            </div>
-
-            <button
               style={{
-                ...styles.sidebarNewChatBtn,
-                color: dynamicStyles.pageText,
-                borderColor: dynamicStyles.borderColor,
-              }}
-              onClick={startNewChat}
-            >
-              + New Chat
-            </button>
-
-            <div style={{ flex: 1, overflowY: "auto", marginBottom: "20px" }}>
-              {chats.map((c) => (
-                <div
-                  key={c.id}
-                  style={{
-                    padding: "10px",
-                    marginBottom: "8px",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "13px",
-                    background:
-                      activeChatId === c.id
-                        ? isLight
-                          ? "#e2e8f0"
-                          : "rgba(255,255,255,0.1)"
-                        : "transparent",
-                    color: dynamicStyles.pageText,
-                  }}
-                  onClick={() => setActiveChatId(c.id)}
-                >
-                  {c.title || "New Chat"}
-                </div>
-              ))}
-            </div>
-
-            <div
-              style={{
-                ...styles.sidebarBottom,
-                borderTop: `1px solid ${dynamicStyles.borderColor}`,
+                width: 24,
+                height: 24,
+                background: t.textPrimary,
+                color: t.bgSidebar,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "12px",
+                fontWeight: "900",
               }}
             >
-              <button
-                style={{
-                  ...styles.settingsBtn,
-                  width: "100%",
-                  justifyContent: "center",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                }}
-                onClick={() => setShowSettings(true)}
-              >
-                ⚙ Settings
-              </button>
+              I
             </div>
+            IMS Chat
           </div>
 
-          <div style={styles.mainContent}>
-            {showSettings && (
+          <button
+            style={{
+              display: "flex",
+              gap: "10px",
+              alignItems: "center",
+              background: "transparent",
+              border: "none",
+              color: t.textPrimary,
+              padding: "12px",
+              borderRadius: "8px",
+              cursor: "pointer",
+              transition: "0.2s",
+              textAlign: "left",
+              width: "100%",
+              fontSize: "14px",
+              fontWeight: "500",
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.background = t.hoverBg)}
+            onMouseOut={(e) =>
+              (e.currentTarget.style.background = "transparent")
+            }
+            onClick={startNewChat}
+          >
+            <span style={{ fontSize: "18px" }}>+</span> New Chat
+          </button>
+
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              marginTop: "16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "12px",
+                color: t.textSecondary,
+                padding: "0 12px 8px",
+              }}
+            >
+              Recent
+            </div>
+            {chats.map((c) => (
               <div
-                style={styles.modalBackdrop}
-                onClick={() => setShowSettings(false)}
+                key={c.id}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  background: activeChatId === c.id ? t.hoverBg : "transparent",
+                  color: t.textPrimary,
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                }}
+                onMouseOver={(e) =>
+                  activeChatId !== c.id &&
+                  (e.currentTarget.style.background = t.hoverBg)
+                }
+                onMouseOut={(e) =>
+                  activeChatId !== c.id &&
+                  (e.currentTarget.style.background = "transparent")
+                }
+                onClick={() => setActiveChatId(c.id)}
+              >
+                <span style={{ textOverflow: "ellipsis", overflow: "hidden" }}>
+                  {c.title || "New Chat"}
+                </span>
+                <button
+                  onClick={(e) => deleteChat(e, c.id)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: t.textSecondary,
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                  }}
+                  title="Delete chat"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              marginTop: "auto",
+              paddingTop: "12px",
+              borderTop: `1px solid ${t.border}`,
+            }}
+          >
+            <button
+              style={{
+                width: "100%",
+                textAlign: "left",
+                padding: "10px 12px",
+                background: "transparent",
+                border: "none",
+                color: t.textPrimary,
+                cursor: "pointer",
+                fontSize: "14px",
+                borderRadius: "8px",
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+              }}
+              onMouseOver={(e) =>
+                (e.currentTarget.style.background = t.hoverBg)
+              }
+              onMouseOut={(e) =>
+                (e.currentTarget.style.background = "transparent")
+              }
+              onClick={() => setShowSettings(true)}
+            >
+              <span style={{ fontSize: "16px" }}>⚙</span> Settings
+            </button>
+          </div>
+        </div>
+
+        {/* Main View */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            background: t.bgMain,
+            position: "relative",
+          }}
+        >
+          {/* Messages Area */}
+          <div
+            ref={containerRef}
+            style={{ flex: 1, overflowY: "auto", padding: "40px 0" }}
+          >
+            {messages.length === 0 ? (
+              <div
+                style={{
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexDirection: "column",
+                  opacity: 0.8,
+                }}
               >
                 <div
                   style={{
-                    ...styles.modal,
-                    background: dynamicStyles.containerBg,
-                    color: dynamicStyles.pageText,
+                    width: 64,
+                    height: 64,
+                    background: t.textPrimary,
+                    color: t.bgMain,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "32px",
+                    fontWeight: "900",
+                    marginBottom: 20,
                   }}
-                  onClick={(e) => e.stopPropagation()}
                 >
-                  <div style={styles.modalHeader}>
-                    <h3 style={styles.modalTitle}>Settings</h3>
-                    <button
-                      style={styles.closeModalBtn}
-                      onClick={() => setShowSettings(false)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <div style={styles.modalSection}>
-                    <label
+                  I
+                </div>
+                <h2 style={{ fontSize: "24px", fontWeight: "600", margin: 0 }}>
+                  How can I help you today?
+                </h2>
+              </div>
+            ) : (
+              <div
+                style={{
+                  maxWidth: "800px",
+                  margin: "0 auto",
+                  padding: "0 20px",
+                }}
+              >
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      marginBottom: "30px",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: m.role === "user" ? "flex-end" : "flex-start",
+                    }}
+                  >
+                    {/* Role Icon & Content */}
+                    <div
                       style={{
-                        ...styles.settingLabel,
-                        color: dynamicStyles.pageText,
+                        display: "flex",
+                        gap: "16px",
+                        width: m.role === "bot" ? "100%" : "auto",
+                        maxWidth: m.role === "bot" ? "100%" : "85%",
                       }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={enableRecommendations}
-                        onChange={(e) =>
-                          setEnableRecommendations(e.target.checked)
-                        }
-                        style={styles.checkbox}
-                      />
-                      Enable Recommendations
-                    </label>
-                  </div>
+                      {m.role === "bot" && (
+                        <div
+                          style={{
+                            width: 30,
+                            height: 30,
+                            flexShrink: 0,
+                            background: t.textPrimary,
+                            color: t.bgMain,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "16px",
+                            fontWeight: "900",
+                            marginTop: "4px",
+                          }}
+                        >
+                          I
+                        </div>
+                      )}
 
-                  <div style={styles.modalSection}>
-                    <span style={styles.modalLabel}>Theme</span>
-                    <div style={styles.satisfiedRow}>
-                      <button
-                        style={
-                          theme === "light"
-                            ? {
-                                ...styles.satBtnActiveYes,
-                                background: dynamicStyles.primaryAccent,
-                              }
-                            : {
-                                ...styles.satBtn,
-                                borderColor: dynamicStyles.borderColor,
-                                color: dynamicStyles.pageText,
-                              }
-                        }
-                        onClick={() => setTheme("light")}
+                      <div
+                        style={{
+                          background:
+                            m.role === "user" ? t.bubbleUser : t.bubbleBot,
+                          padding: m.role === "user" ? "12px 18px" : "4px 0",
+                          borderRadius: m.role === "user" ? "20px" : "0",
+                          fontSize: "15px",
+                          lineHeight: "1.6",
+                          flex: 1,
+                        }}
                       >
-                        Light
-                      </button>
-                      <button
-                        style={
-                          theme === "dark"
-                            ? {
-                                ...styles.satBtnActiveYes,
-                                background: dynamicStyles.primaryAccent,
-                              }
-                            : {
-                                ...styles.satBtn,
-                                borderColor: dynamicStyles.borderColor,
-                                color: dynamicStyles.pageText,
-                              }
-                        }
-                        onClick={() => setTheme("dark")}
-                      >
-                        Dark
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={styles.modalSection}>
-                    <span style={styles.modalLabel}>Answer Style</span>
-                    <div style={styles.satisfiedRow}>
-                      <button
-                        style={
-                          answerStyle === "detailed"
-                            ? {
-                                ...styles.satBtnActiveYes,
-                                background: dynamicStyles.primaryAccent,
-                              }
-                            : {
-                                ...styles.satBtn,
-                                borderColor: dynamicStyles.borderColor,
-                                color: dynamicStyles.pageText,
-                              }
-                        }
-                        onClick={() => setAnswerStyle("detailed")}
-                      >
-                        Detailed
-                      </button>
-                      <button
-                        style={
-                          answerStyle === "precise"
-                            ? {
-                                ...styles.satBtnActiveYes,
-                                background: dynamicStyles.primaryAccent,
-                              }
-                            : {
-                                ...styles.satBtn,
-                                borderColor: dynamicStyles.borderColor,
-                                color: dynamicStyles.pageText,
-                              }
-                        }
-                        onClick={() => setAnswerStyle("precise")}
-                      >
-                        Precise
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={containerRef} style={styles.chatArea}>
-              {messages.length === 0 && (
-                <div style={styles.emptyState}>
-                  <h2
-                    style={{ color: dynamicStyles.pageText, marginBottom: 8 }}
-                  >
-                    How can I help you?
-                  </h2>
-                </div>
-              )}
-
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  style={{
-                    ...styles.messageWrapper,
-                    justifyContent:
-                      m.role === "user" ? "flex-end" : "flex-start",
-                  }}
-                >
-                  <div
-                    style={
-                      m.role === "user"
-                        ? styles.userBubble
-                        : {
-                            ...styles.botBubble,
-                            background: dynamicStyles.botBubbleBg,
-                            border: dynamicStyles.botBubbleBorder,
-                            color: dynamicStyles.pageText,
-                          }
-                    }
-                  >
-                    <div style={styles.messageTextInner}>
-                      {m.text &&
-                        m.text.split("\n").map((line, i) => (
+                        {m.text.split("\\n").map((line, i) => (
                           <p
                             key={i}
                             style={{
@@ -717,817 +797,738 @@ export default function ChatFrontend() {
                             {line}
                           </p>
                         ))}
-                    </div>
 
-                    {/* Meta Row: Feedback Button + Timestamp */}
-                    <div style={styles.metaRow}>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "12px",
-                          alignItems: "center",
-                        }}
-                      >
-                        {shouldShowFeedback(m) &&
-                          (m.feedbackSubmitted ? (
-                            <span
-                              style={styles.feedbackSubmitted}
-                              title="Feedback submitted"
-                            >
-                              <span
-                                style={{ fontSize: "14px", marginRight: "4px" }}
-                              >
-                                ✓
-                              </span>
-                              Submitted
-                            </span>
-                          ) : (
-                            <button
-                              style={styles.feedbackBtn}
-                              onClick={() => openFeedbackPopupFor(m)}
-                              title="Provide Feedback"
-                            >
-                              <span
-                                style={{ fontSize: "14px", marginRight: "3px" }}
-                              >
-                                ✎
-                              </span>{" "}
-                              Feedback
-                            </button>
-                          ))}
-
-                        {shouldShowRetry(m) && (
-                          <button
-                            style={styles.feedbackBtn}
-                            onClick={() => handleRetry(m.id)}
-                            disabled={loading}
-                            title="Retry with deeper search"
-                          >
-                            <span
-                              style={{ fontSize: "14px", marginRight: "3px" }}
-                            >
-                              ↻
-                            </span>{" "}
-                            Retry
-                          </button>
-                        )}
-                      </div>
-
-                      <span style={styles.ts}>
-                        {m.ts
-                          ? new Date(m.ts).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : ""}
-                      </span>
-                    </div>
-
-                    {/* Sources Section */}
-                    {m.links && m.links.length > 0 && (
-                      <div style={styles.sourcesBlock}>
-                        <div style={styles.separator} />
-                        <div
-                          style={styles.sourcesHeaderCompact}
-                          onClick={() => toggleSources(m.id)}
-                        >
-                          <span style={styles.sourcesLabel}>
-                            Sources ({m.links.length})
-                          </span>
-                          <span
+                        {/* Bot Actions */}
+                        {m.role === "bot" && (
+                          <div
                             style={{
-                              transform: m.showSources
-                                ? "rotate(180deg)"
-                                : "rotate(0deg)",
-                              transition: "0.2s",
+                              marginTop: "16px",
+                              display: "flex",
+                              gap: "12px",
+                              alignItems: "center",
+                              flexWrap: "wrap",
                             }}
                           >
-                            ▼
-                          </span>
-                        </div>
+                            {shouldShowFeedback(m) &&
+                              (m.feedbackSubmitted ? (
+                                <span
+                                  style={{
+                                    fontSize: "12px",
+                                    color: t.textSecondary,
+                                  }}
+                                  title="Feedback submitted"
+                                >
+                                  ✓ Feedback Received
+                                </span>
+                              ) : (
+                                <button
+                                  style={{
+                                    background: "transparent",
+                                    border: `1px solid ${t.border}`,
+                                    color: t.textSecondary,
+                                    padding: "4px 10px",
+                                    borderRadius: "6px",
+                                    fontSize: "12px",
+                                    cursor: "pointer",
+                                  }}
+                                  onClick={() => openFeedbackPopupFor(m)}
+                                >
+                                  ✎ Feedback
+                                </button>
+                              ))}
+
+                            {shouldShowRetry(m) && (
+                              <button
+                                style={{
+                                  background: "transparent",
+                                  border: `1px solid ${t.border}`,
+                                  color: t.textSecondary,
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  cursor: "pointer",
+                                }}
+                                onClick={() => handleRetry(m.id)}
+                                disabled={isLoading}
+                              >
+                                ↻ Retry
+                              </button>
+                            )}
+
+                            {m.links && m.links.length > 0 && (
+                              <button
+                                style={{
+                                  background: "transparent",
+                                  border: `1px solid ${t.border}`,
+                                  color: t.textSecondary,
+                                  padding: "4px 10px",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  cursor: "pointer",
+                                }}
+                                onClick={() =>
+                                  toggleSources(activeChatId, m.id)
+                                }
+                              >
+                                {m.showSources
+                                  ? "Hide Sources"
+                                  : `View Sources (${m.links.length})`}
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         {m.showSources && (
-                          <div style={styles.linksGrid}>
-                            {m.links.map((l, i) => (
-                              <div key={i} style={styles.linkCard}>
+                          <div
+                            style={{
+                              marginTop: "12px",
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "8px",
+                            }}
+                          >
+                            {m.links.map((link, idx) => (
+                              <div
+                                key={idx}
+                                style={{
+                                  display: "flex",
+                                  border: `1px solid ${t.border}`,
+                                  borderRadius: "6px",
+                                  overflow: "hidden",
+                                  background: t.bgSidebar,
+                                }}
+                              >
                                 <a
-                                  href={l}
+                                  href={link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  style={styles.linkTitle}
-                                  title={l}
+                                  style={{
+                                    padding: "8px 12px",
+                                    fontSize: "12px",
+                                    color: t.textPrimary,
+                                    textDecoration: "none",
+                                  }}
                                 >
-                                  {shortenUrl(l)}
+                                  {shortenUrl(link)}
                                 </a>
                                 <button
-                                  style={styles.iconBtn}
-                                  onClick={() => copyToClipboard(l)}
-                                  title="Copy URL"
+                                  onClick={() => copyToClipboard(link)}
+                                  style={{
+                                    border: "none",
+                                    borderLeft: `1px solid ${t.border}`,
+                                    background: "transparent",
+                                    padding: "0 10px",
+                                    color: t.textSecondary,
+                                    cursor: "pointer",
+                                  }}
                                 >
-                                  {copiedLink === l ? "✓" : "❐"}
+                                  {copiedLink === link ? "✓" : "❐"}
                                 </button>
                               </div>
                             ))}
                           </div>
                         )}
-                      </div>
-                    )}
 
-                    {/* Suggested Follow-ups */}
-                    {enableRecommendations &&
-                      m.suggestedFollowUp &&
-                      m.suggestedFollowUp.length > 0 && (
-                        <div style={styles.followUpBlock}>
-                          <div style={styles.followUpTitle}>
-                            Suggested Questions:
-                          </div>
-                          <div style={styles.followUpGrid}>
-                            {m.suggestedFollowUp.map((sq, idx) => (
-                              <button
-                                key={idx}
-                                style={styles.followUpBtn}
-                                onClick={() => submit(sq)}
+                        {enableRecommendations &&
+                          m.suggestedFollowUp &&
+                          m.suggestedFollowUp.length > 0 && (
+                            <div style={{ marginTop: "16px" }}>
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  color: t.textSecondary,
+                                  marginBottom: "8px",
+                                }}
                               >
-                                {sq}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                                Suggested Follow-ups:
+                              </div>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "6px",
+                                }}
+                              >
+                                {m.suggestedFollowUp.map((sq, idx) => (
+                                  <button
+                                    key={idx}
+                                    style={{
+                                      textAlign: "left",
+                                      background: "transparent",
+                                      border: `1px solid ${t.border}`,
+                                      color: t.textPrimary,
+                                      padding: "10px 14px",
+                                      borderRadius: "8px",
+                                      fontSize: "13px",
+                                      cursor: "pointer",
+                                    }}
+                                    onMouseOver={(e) =>
+                                      (e.currentTarget.style.background =
+                                        t.hoverBg)
+                                    }
+                                    onMouseOut={(e) =>
+                                      (e.currentTarget.style.background =
+                                        "transparent")
+                                    }
+                                    onClick={() => submit(sq)}
+                                  >
+                                    {sq}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
 
-              {loading && (
-                <div style={styles.messageWrapper}>
+                {isLoading && (
                   <div
                     style={{
-                      ...styles.botBubble,
-                      background: dynamicStyles.botBubbleBg,
-                      border: dynamicStyles.botBubbleBorder,
-                      color: dynamicStyles.pageText,
-                      padding: "12px 20px",
+                      display: "flex",
+                      gap: "16px",
+                      marginBottom: "30px",
+                      width: "100%",
                     }}
                   >
                     <div
                       style={{
-                        ...styles.typingIndicator,
+                        width: 30,
+                        height: 30,
+                        flexShrink: 0,
+                        background: t.textPrimary,
+                        color: t.bgMain,
+                        borderRadius: "50%",
                         display: "flex",
-                        gap: "10px",
                         alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "16px",
+                        fontWeight: "900",
+                        marginTop: "4px",
                       }}
                     >
-                      <span
-                        style={{
-                          fontSize: "14px",
-                          fontStyle: "italic",
-                          opacity: 0.8,
-                        }}
-                      >
-                        {loadingText}
-                      </span>
-                      <div style={{ display: "flex", gap: "4px" }}>
-                        <div style={{ ...styles.dot, animationDelay: "0s" }} />
-                        <div
-                          style={{ ...styles.dot, animationDelay: "0.2s" }}
-                        />
-                        <div
-                          style={{ ...styles.dot, animationDelay: "0.4s" }}
-                        />
-                      </div>
+                      I
+                    </div>
+                    <div
+                      style={{
+                        padding: "4px 0",
+                        fontSize: "15px",
+                        flex: 1,
+                        color: t.textSecondary,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      <span className="pulse-text">{loadingText}</span>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
+          </div>
 
-            <div style={styles.inputArea}>
-              <form style={styles.form} onSubmit={sendQuery}>
+          {/* Input Area */}
+          <div
+            style={{
+              padding: "20px",
+              maxWidth: "800px",
+              width: "100%",
+              margin: "0 auto",
+            }}
+          >
+            <div style={{ position: "relative" }}>
+              <form
+                onSubmit={sendQuery}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: t.inputBg,
+                  borderRadius: "24px",
+                  border: `1px solid ${t.border}`,
+                  padding: "8px 16px",
+                  gap: "12px",
+                }}
+              >
                 <input
-                  placeholder={loading ? loadingText : "Type your question..."}
+                  type="text"
+                  placeholder="Send a message..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   style={{
-                    ...styles.input,
-                    background: dynamicStyles.inputBg,
-                    color: dynamicStyles.inputText,
-                    borderColor: dynamicStyles.borderColor,
+                    flex: 1,
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    fontSize: "15px",
+                    color: t.textPrimary,
+                    padding: "8px 0",
                   }}
-                  disabled={loading}
+                  disabled={isLoading}
                 />
-                <button
-                  type="submit"
-                  style={styles.sendButton}
-                  disabled={loading || !query.trim()}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      d="M22 2L11 13M22 2L15 22L11 13M11 13L2 9L22 2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </form>
-            </div>
-          </div>
 
-          {/* FEEDBACK MODAL */}
-          {feedbackOpenFor && (
-            <div
-              style={styles.modalBackdrop}
-              onClick={() => setFeedbackOpenFor(null)}
-            >
+                {isLoading ? (
+                  <button
+                    type="button"
+                    onClick={handleStop}
+                    style={{
+                      background: t.textPrimary,
+                      color: t.bgMain,
+                      border: "none",
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "10px",
+                        height: "10px",
+                        background: t.bgMain,
+                      }}
+                    />{" "}
+                    {/* Square stop icon */}
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!query.trim()}
+                    style={{
+                      background: query.trim()
+                        ? t.textPrimary
+                        : t.textSecondary,
+                      color: t.bgMain,
+                      border: "none",
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: query.trim() ? "pointer" : "not-allowed",
+                      transition: "0.2s",
+                    }}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        d="M5 12h14M12 5l7 7-7 7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </form>
               <div
                 style={{
-                  ...styles.modal,
-                  background: dynamicStyles.containerBg,
-                  color: dynamicStyles.pageText,
+                  textAlign: "center",
+                  marginTop: "10px",
+                  fontSize: "11px",
+                  color: t.textSecondary,
                 }}
-                onClick={(ev) => ev.stopPropagation()}
               >
-                <div style={styles.modalHeader}>
-                  <h3 style={styles.modalTitle}>Feedback</h3>
-                  <button
-                    style={styles.closeModalBtn}
-                    onClick={() => setFeedbackOpenFor(null)}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {/* Updated Text */}
-                <p
-                  style={{
-                    ...styles.modalSub,
-                    color: isLight ? "#475569" : "#94a3b8",
-                  }}
-                >
-                  Feedback is collected for research and analysis.
-                </p>
-
-                {/* Answer Rating */}
-                <div style={styles.modalSection}>
-                  <div style={styles.modalLabelRow}>
-                    <span style={styles.modalLabel}>Answer Quality</span>
-                    <span style={styles.modalLabelNote}>
-                      (1 = Poor, 5 = Excellent)
-                    </span>
-                  </div>
-                  <div style={styles.ratingContainer}>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button
-                        key={n}
-                        style={
-                          feedbackDraft.answer === n
-                            ? styles.ratingBtnActive
-                            : styles.ratingBtn
-                        }
-                        onClick={() =>
-                          setFeedbackDraft((p) => ({ ...p, answer: n }))
-                        }
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Source Rating */}
-                <div style={styles.modalSection}>
-                  <div style={styles.modalLabelRow}>
-                    <span style={styles.modalLabel}>Source Relevance</span>
-                    <span style={styles.modalLabelNote}>
-                      (1 = Irrelevant, 5 = Relevant)
-                    </span>
-                  </div>
-                  <div style={styles.ratingContainer}>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button
-                        key={n}
-                        style={
-                          feedbackDraft.source === n
-                            ? styles.ratingBtnActive
-                            : styles.ratingBtn
-                        }
-                        onClick={() =>
-                          setFeedbackDraft((p) => ({ ...p, source: n }))
-                        }
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Satisfied Toggle */}
-                <div style={styles.modalSection}>
-                  <span style={styles.modalLabel}>
-                    Are you satisfied with this result?
-                  </span>
-                  <div style={styles.satisfiedRow}>
-                    <button
-                      style={
-                        feedbackDraft.satisfied === true
-                          ? styles.satBtnActiveYes
-                          : styles.satBtn
-                      }
-                      onClick={() =>
-                        setFeedbackDraft((p) => ({ ...p, satisfied: true }))
-                      }
-                    >
-                      Yes
-                    </button>
-                    <button
-                      style={
-                        feedbackDraft.satisfied === false
-                          ? styles.satBtnActiveNo
-                          : styles.satBtn
-                      }
-                      onClick={() =>
-                        setFeedbackDraft((p) => ({ ...p, satisfied: false }))
-                      }
-                    >
-                      No
-                    </button>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div style={styles.modalActions}>
-                  <button
-                    style={styles.feedbackSubmit}
-                    onClick={() =>
-                      submitFeedback(
-                        messages.find((x) => x.id === feedbackOpenFor),
-                      )
-                    }
-                    disabled={feedbackLoading}
-                  >
-                    {feedbackLoading ? "Sending..." : "Submit Feedback"}
-                  </button>
-                </div>
+                IMS Chatbot can make mistakes. Verify important information.
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            style={{
+              background: t.bgMain,
+              borderRadius: "16px",
+              width: "400px",
+              maxWidth: "90%",
+              padding: "24px",
+              color: t.textPrimary,
+              boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "24px",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "18px" }}>Settings</h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: t.textSecondary,
+                  fontSize: "20px",
+                  cursor: "pointer",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div
+              style={{
+                marginBottom: "20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>Theme</span>
+              <div
+                style={{
+                  display: "flex",
+                  background: t.inputBg,
+                  borderRadius: "8px",
+                  padding: "4px",
+                }}
+              >
+                <button
+                  onClick={() => setTheme("light")}
+                  style={{
+                    background: theme === "light" ? t.bgMain : "transparent",
+                    color: t.textPrimary,
+                    border: "none",
+                    padding: "6px 16px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    boxShadow:
+                      theme === "light" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                  }}
+                >
+                  Light
+                </button>
+                <button
+                  onClick={() => setTheme("dark")}
+                  style={{
+                    background: theme === "dark" ? t.bgMain : "transparent",
+                    color: t.textPrimary,
+                    border: "none",
+                    padding: "6px 16px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    boxShadow:
+                      theme === "dark" ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+                  }}
+                >
+                  Dark
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginBottom: "20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>Answer Format</span>
+              <div
+                style={{
+                  display: "flex",
+                  background: t.inputBg,
+                  borderRadius: "8px",
+                  padding: "4px",
+                }}
+              >
+                <button
+                  onClick={() => setAnswerStyle("detailed")}
+                  style={{
+                    background:
+                      answerStyle === "detailed" ? t.bgMain : "transparent",
+                    color: t.textPrimary,
+                    border: "none",
+                    padding: "6px 16px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    boxShadow:
+                      answerStyle === "detailed"
+                        ? "0 1px 3px rgba(0,0,0,0.1)"
+                        : "none",
+                  }}
+                >
+                  Detailed
+                </button>
+                <button
+                  onClick={() => setAnswerStyle("precise")}
+                  style={{
+                    background:
+                      answerStyle === "precise" ? t.bgMain : "transparent",
+                    color: t.textPrimary,
+                    border: "none",
+                    padding: "6px 16px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "13px",
+                    boxShadow:
+                      answerStyle === "precise"
+                        ? "0 1px 3px rgba(0,0,0,0.1)"
+                        : "none",
+                  }}
+                >
+                  Precise
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span style={{ fontSize: "14px" }}>Recommendations</span>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enableRecommendations}
+                  onChange={(e) => setEnableRecommendations(e.target.checked)}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
+      {feedbackOpenFor && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.5)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => setFeedbackOpenFor(null)}
+        >
+          <div
+            style={{
+              background: t.bgMain,
+              borderRadius: "16px",
+              width: "350px",
+              maxWidth: "90%",
+              padding: "24px",
+              color: t.textPrimary,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: "0 0 16px 0", fontSize: "18px" }}>
+              Provide Feedback
+            </h3>
+
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
+                Answer Quality (1-5)
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() =>
+                      setFeedbackDraft((p) => ({ ...p, answer: n }))
+                    }
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      borderRadius: "6px",
+                      background:
+                        feedbackDraft.answer === n ? t.textPrimary : t.inputBg,
+                      color:
+                        feedbackDraft.answer === n ? t.bgMain : t.textPrimary,
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
+                Source Relevance (1-5)
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() =>
+                      setFeedbackDraft((p) => ({ ...p, source: n }))
+                    }
+                    style={{
+                      flex: 1,
+                      padding: "8px",
+                      borderRadius: "6px",
+                      background:
+                        feedbackDraft.source === n ? t.textPrimary : t.inputBg,
+                      color:
+                        feedbackDraft.source === n ? t.bgMain : t.textPrimary,
+                      border: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
+                Satisfied?
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={() =>
+                    setFeedbackDraft((p) => ({ ...p, satisfied: true }))
+                  }
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: "6px",
+                    background:
+                      feedbackDraft.satisfied === true
+                        ? t.textPrimary
+                        : t.inputBg,
+                    color:
+                      feedbackDraft.satisfied === true
+                        ? t.bgMain
+                        : t.textPrimary,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={() =>
+                    setFeedbackDraft((p) => ({ ...p, satisfied: false }))
+                  }
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: "6px",
+                    background:
+                      feedbackDraft.satisfied === false
+                        ? t.textPrimary
+                        : t.inputBg,
+                    color:
+                      feedbackDraft.satisfied === false
+                        ? t.bgMain
+                        : t.textPrimary,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  No
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+              }}
+            >
+              <button
+                onClick={() => setFeedbackOpenFor(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: t.textSecondary,
+                  cursor: "pointer",
+                  padding: "8px 16px",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                disabled={feedbackLoading}
+                onClick={submitFeedback}
+                style={{
+                  background: t.textPrimary,
+                  color: t.bgMain,
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  padding: "8px 16px",
+                  fontWeight: "500",
+                }}
+              >
+                {feedbackLoading ? "Sending..." : "Submit"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>
+        {`
+          .pulse-text {
+            animation: pulse-op 1.5s infinite;
+          }
+          @keyframes pulse-op {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+          }
+        `}
+      </style>
     </>
   );
 }
-
-/* ---------------------- Helpers ---------------------- */
-
-function stripSourcesBlock(raw) {
-  if (!raw) return "";
-  const idx = raw.search(/\n\s*Sources\s*:/i);
-  return idx >= 0 ? raw.slice(0, idx).trim() : raw.trim();
-}
-
-function stripFilenamesBeforeLinks(raw) {
-  if (!raw) return raw;
-  return raw.replace(/(\b[\w\-\.]{3,}\.pdf\b)(?=\s*,\s*https?:\/\/)/gi, "");
-}
-
-/* ---------------------- Styles ---------------------- */
-
-const styles = {
-  page: {
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    height: "100vh",
-    background: "linear-gradient(135deg, #0f172a 0%, #020617 100%)",
-    fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
-    color: "#f1f5f9",
-  },
-  container: {
-    width: "90%",
-    maxWidth: "1200px",
-    height: "90vh",
-    background: "#1e293b",
-    borderRadius: "20px",
-    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
-    display: "flex",
-    flexDirection: "row",
-    overflow: "hidden",
-    border: "1px solid rgba(255,255,255,0.05)",
-  },
-
-  /* Sidebar styles */
-  sidebar: {
-    width: "260px",
-    background: "rgba(15, 23, 42, 0.6)",
-    backdropFilter: "blur(10px)",
-    borderRight: "1px solid rgba(255,255,255,0.05)",
-    display: "flex",
-    flexDirection: "column",
-    padding: "20px",
-  },
-  sidebarHeader: {
-    fontSize: "18px",
-    fontWeight: "600",
-    marginBottom: "30px",
-    color: "#f1f5f9",
-  },
-  sidebarNewChatBtn: {
-    background: "transparent",
-    border: "1px solid rgba(255,255,255,0.1)",
-    color: "#f1f5f9",
-    padding: "10px",
-    borderRadius: "8px",
-    fontSize: "14px",
-    cursor: "pointer",
-    transition: "background 0.2s",
-    textAlign: "left",
-    marginBottom: "20px",
-  },
-  sidebarBottom: {
-    marginTop: "auto",
-    paddingTop: "20px",
-    borderTop: "1px solid rgba(255,255,255,0.05)",
-  },
-  sidebarLabel: {
-    display: "flex",
-    alignItems: "center",
-    cursor: "pointer",
-    color: "#94a3b8",
-    fontSize: "13px",
-  },
-
-  /* Main Content Styles */
-  mainContent: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-  },
-
-  checkbox: {
-    marginRight: "10px",
-    cursor: "pointer",
-    width: "16px",
-    height: "16px",
-    accentColor: "#3b82f6",
-  },
-
-  /* Chat Area */
-  chatArea: {
-    flex: 1,
-    padding: "24px",
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: "24px",
-  },
-  emptyState: {
-    textAlign: "center",
-    marginTop: "auto",
-    marginBottom: "auto",
-    opacity: 0.8,
-  },
-  messageWrapper: {
-    display: "flex",
-    gap: "8px",
-    alignItems: "flex-end",
-    animation: "slideIn 0.3s ease-out forwards",
-  },
-
-  /* Bubbles */
-  userBubble: {
-    background: "#3b82f6",
-    color: "#fff",
-    padding: "12px 18px",
-    borderRadius: "18px 18px 2px 18px",
-    maxWidth: "85%",
-    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-    lineHeight: "1.5",
-    fontSize: "15px",
-  },
-  botBubble: {
-    background: "#334155",
-    color: "#f1f5f9",
-    padding: "16px",
-    borderRadius: "18px 18px 18px 2px",
-    maxWidth: "85%",
-    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-    lineHeight: "1.5",
-    fontSize: "15px",
-  },
-  messageTextInner: {
-    wordBreak: "break-word",
-  },
-  metaRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: "8px",
-    borderTop: "1px solid rgba(255,255,255,0.05)",
-    paddingTop: "6px",
-  },
-  ts: {
-    fontSize: "10px",
-    opacity: 0.6,
-    marginLeft: "auto",
-  },
-  feedbackBtn: {
-    background: "transparent",
-    border: "none",
-    color: "#94a3b8",
-    fontSize: "11px",
-    cursor: "pointer",
-    padding: "2px 6px",
-    borderRadius: "4px",
-    display: "flex",
-    alignItems: "center",
-    transition: "color 0.2s, background 0.2s",
-  },
-  /* New style for submitted state */
-  feedbackSubmitted: {
-    color: "#10b981", // Green
-    fontSize: "11px",
-    display: "flex",
-    alignItems: "center",
-    padding: "2px 6px",
-    cursor: "default",
-  },
-
-  /* Sources */
-  sourcesBlock: {
-    marginTop: "12px",
-  },
-  separator: {
-    height: "1px",
-    background: "rgba(255,255,255,0.1)",
-    margin: "8px 0",
-  },
-  sourcesHeaderCompact: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    cursor: "pointer",
-    padding: "4px 0",
-    color: "#93c5fd",
-    fontSize: "13px",
-    fontWeight: "600",
-    userSelect: "none",
-  },
-  linksGrid: {
-    display: "grid",
-    gap: "8px",
-    marginTop: "8px",
-  },
-  linkCard: {
-    background: "rgba(0,0,0,0.2)",
-    padding: "8px 12px",
-    borderRadius: "6px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    fontSize: "12px",
-  },
-  linkTitle: {
-    color: "#bae6fd",
-    textDecoration: "none",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    marginRight: "10px",
-  },
-  iconBtn: {
-    background: "transparent",
-    border: "none",
-    color: "#94a3b8",
-    cursor: "pointer",
-    padding: "0",
-    fontSize: "14px",
-  },
-
-  /* Follow Ups */
-  followUpBlock: {
-    marginTop: "16px",
-    paddingTop: "12px",
-    borderTop: "1px dashed rgba(255,255,255,0.1)",
-  },
-  followUpTitle: {
-    fontSize: "12px",
-    color: "#93c5fd",
-    marginBottom: "10px",
-    fontWeight: "600",
-  },
-  followUpGrid: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-  },
-  followUpBtn: {
-    background: "rgba(59, 130, 246, 0.15)",
-    border: "1px solid rgba(59, 130, 246, 0.4)",
-    color: "#e0f2fe",
-    padding: "6px 12px",
-    borderRadius: "16px",
-    fontSize: "13px",
-    cursor: "pointer",
-    transition: "background 0.2s, transform 0.1s",
-  },
-
-  /* Loading Dots */
-  typingIndicator: {
-    display: "flex",
-    gap: "6px",
-  },
-  dot: {
-    width: "6px",
-    height: "6px",
-    background: "#fff",
-    borderRadius: "50%",
-    animation: "pulse 1.4s infinite ease-in-out both",
-  },
-
-  /* Input Area */
-  inputArea: {
-    padding: "20px",
-    background: "rgba(15, 23, 42, 0.8)",
-    borderTop: "1px solid rgba(255,255,255,0.05)",
-  },
-  form: {
-    display: "flex",
-    gap: "10px",
-    position: "relative",
-  },
-  input: {
-    width: "100%",
-    padding: "14px 50px 14px 20px",
-    borderRadius: "99px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "#0f172a",
-    color: "white",
-    fontSize: "15px",
-    outline: "none",
-    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
-  },
-  sendButton: {
-    position: "absolute",
-    right: "6px",
-    top: "6px",
-    bottom: "6px",
-    width: "40px",
-    borderRadius: "50%",
-    border: "none",
-    background: "#3b82f6",
-    color: "white",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    transition: "background 0.2s",
-  },
-
-  /* Modal */
-  modalBackdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.7)",
-    backdropFilter: "blur(4px)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 100,
-  },
-  modal: {
-    width: "100%",
-    maxWidth: "420px",
-    background: "#1e293b",
-    borderRadius: "16px",
-    padding: "28px",
-    boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    animation: "slideIn 0.2s ease-out",
-  },
-  modalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "10px",
-  },
-  modalTitle: { margin: 0, fontSize: "20px", fontWeight: "700" },
-  closeModalBtn: {
-    background: "transparent",
-    border: "none",
-    color: "#94a3b8",
-    fontSize: "20px",
-    cursor: "pointer",
-    padding: "4px",
-  },
-  modalSub: {
-    fontSize: "14px",
-    color: "#94a3b8",
-    marginBottom: "24px",
-    lineHeight: "1.5",
-  },
-  modalSection: { marginBottom: "24px" },
-
-  modalLabelRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    marginBottom: "12px",
-  },
-  modalLabel: {
-    fontSize: "14px",
-    fontWeight: "600",
-    color: "#e2e8f0",
-    display: "block",
-  },
-  modalLabelNote: {
-    fontSize: "11px",
-    color: "#64748b",
-  },
-
-  /* Rating Buttons (Circular) */
-  ratingContainer: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "10px",
-  },
-  ratingBtn: {
-    flex: 1,
-    height: "42px",
-    borderRadius: "8px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(255,255,255,0.03)",
-    color: "#94a3b8",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: "600",
-    transition: "all 0.2s",
-  },
-  ratingBtnActive: {
-    flex: 1,
-    height: "42px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#3b82f6",
-    color: "white",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "0 0 15px rgba(59, 130, 246, 0.4)",
-    transform: "scale(1.05)",
-  },
-
-  /* Satisfied Toggle */
-  satisfiedRow: { display: "flex", gap: "12px", marginTop: "10px" },
-  satBtn: {
-    flex: 1,
-    padding: "12px",
-    borderRadius: "8px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "rgba(255,255,255,0.03)",
-    color: "#94a3b8",
-    cursor: "pointer",
-    fontSize: "14px",
-    transition: "all 0.2s",
-  },
-  satBtnActiveYes: {
-    flex: 1,
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#10b981", // Green
-    color: "white",
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-  satBtnActiveNo: {
-    flex: 1,
-    padding: "12px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#ef4444", // Red
-    color: "white",
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-
-  /* Submit Action */
-  modalActions: { marginTop: "12px" },
-  feedbackSubmit: {
-    width: "100%",
-    padding: "14px",
-    borderRadius: "8px",
-    border: "none",
-    background: "#3b82f6",
-    color: "white",
-    fontWeight: "600",
-    cursor: "pointer",
-    fontSize: "15px",
-    transition: "background 0.2s",
-  },
-};
