@@ -294,7 +294,7 @@ export default function ChatFrontend() {
         return "";
       })(),
       response: messageObj.text,
-      links: messageObj.links || [],
+      links: messageObj.links ? messageObj.links.map(l => typeof l === "string" ? l : l.link) : [],
       answer_score: ans,
       source_score: src,
       satisfied: sat,
@@ -1373,9 +1373,9 @@ export default function ChatFrontend() {
                   <button
                     type="button"
                     onClick={handleStop}
+                    title="Stop"
                     style={{
                       background: t.textPrimary,
-                      color: t.bgMain,
                       border: "none",
                       width: "36px",
                       height: "36px",
@@ -1384,19 +1384,22 @@ export default function ChatFrontend() {
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: "pointer",
+                      flexShrink: 0,
+                      fontSize: "14px",
+                      color: t.bgMain,
+                      lineHeight: 1,
                     }}
                   >
-                    <Square size={16} fill={t.bgMain} color={t.bgMain} />
+                    &#9632;
                   </button>
                 ) : (
                   <button
                     type="submit"
                     disabled={!query.trim()}
+                    title="Send"
                     style={{
-                      background: query.trim() ? t.textPrimary : t.border,
-                      opacity: query.trim() ? 1 : 0.6,
-                      color: t.bgMain,
-                      border: "none",
+                      background: query.trim() ? t.textPrimary : "transparent",
+                      border: query.trim() ? "none" : `2px solid ${t.textSecondary}`,
                       width: "36px",
                       height: "36px",
                       borderRadius: "50%",
@@ -1404,14 +1407,15 @@ export default function ChatFrontend() {
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: query.trim() ? "pointer" : "not-allowed",
-                      transition: "0.2s",
+                      transition: "all 0.2s",
+                      flexShrink: 0,
+                      fontSize: "18px",
+                      color: query.trim() ? t.bgMain : t.textSecondary,
+                      lineHeight: 1,
+                      paddingBottom: "2px",
                     }}
                   >
-                    <Send
-                      size={18}
-                      color={query.trim() ? t.bgMain : t.textSecondary}
-                      style={{ marginLeft: "-2px" }}
-                    />
+                    ↑
                   </button>
                 )}
               </form>
