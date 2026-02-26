@@ -1387,7 +1387,6 @@ export default function ChatFrontend() {
                       flexShrink: 0,
                     }}
                   >
-                    {/* White filled square on red */}
                     <svg width="13" height="13" viewBox="0 0 13 13">
                       <rect x="0" y="0" width="13" height="13" rx="2" fill="white" />
                     </svg>
@@ -1398,8 +1397,8 @@ export default function ChatFrontend() {
                     disabled={!query.trim()}
                     title="Send"
                     style={{
-                      background: query.trim() ? t.textPrimary : "transparent",
-                      border: query.trim() ? "none" : `2px solid ${t.textSecondary}`,
+                      background: "#000000",
+                      border: "none",
                       width: "36px",
                       height: "36px",
                       borderRadius: "50%",
@@ -1407,16 +1406,13 @@ export default function ChatFrontend() {
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: query.trim() ? "pointer" : "not-allowed",
-                      transition: "all 0.2s",
+                      transition: "opacity 0.2s",
                       flexShrink: 0,
+                      opacity: query.trim() ? 1 : 0.35,
                     }}
                   >
-                    {/* WhatsApp-style filled right-pointing triangle */}
                     <svg width="16" height="16" viewBox="0 0 16 16">
-                      <polygon
-                        points="3,2 14,8 3,14"
-                        fill={query.trim() ? t.bgMain : t.textSecondary}
-                      />
+                      <polygon points="4,2 14,8 4,14" fill="white" />
                     </svg>
                   </button>
                 )}
