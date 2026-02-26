@@ -261,6 +261,17 @@ class RAGSearch:
         return build_base_prompt(context_text, query, answer_style=kwargs.get("answer_style", "detailed"))
 
     def _parse_sources_from_response(self, response: str) -> dict:
+        def clean_markdown(text):
+            t = text.strip()
+            if t.startswith("```"):
+                idx = t.find("\n")
+                if idx != -1:
+                    t = t[idx+1:]
+                r_idx = t.rfind("```")
+                if r_idx != -1:
+                    t = t[:r_idx]
+            return t.strip()
+
         def extract_json_objects(text):
             objects = []
             depth = 0
@@ -276,15 +287,17 @@ class RAGSearch:
                         objects.append(text[start:i+1])
             return objects
 
+        clean_resp = clean_markdown(response)
+
         try:
-            parsed = json.loads(response)
+            parsed = json.loads(clean_resp, strict=False)
         except json.JSONDecodeError:
-            extracted = extract_json_objects(response)
+            extracted = extract_json_objects(clean_resp)
             parsed = None
             # Iterate backwards to get the final generated JSON block
             for block in reversed(extracted):
                 try:
-                    parsed = json.loads(block)
+                    parsed = json.loads(block, strict=False)
                     break
                 except json.JSONDecodeError:
                     continue
