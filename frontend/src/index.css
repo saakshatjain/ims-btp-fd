@@ -99,9 +99,9 @@ input:disabled {
   opacity: 0.5;
 }
 
-/* ----- SEND BUTTON ----- */
+/* ----- SEND BUTTON (scoped to old layout) ----- */
 
-button {
+.input-area button {
   padding: 14px 24px;
   border: none;
   border-radius: 35px;
@@ -114,18 +114,18 @@ button {
 }
 
 /* Hover effect */
-button:hover {
+.input-area button:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 14px #1e90ff55;
 }
 
 /* Pressed effect */
-button:active {
+.input-area button:active {
   transform: scale(0.96);
 }
 
 /* Disabled button */
-button:disabled {
+.input-area button:disabled {
   background: #3b568a;
   cursor: not-allowed;
   box-shadow: none;

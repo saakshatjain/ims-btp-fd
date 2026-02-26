@@ -1385,6 +1385,9 @@ export default function ChatFrontend() {
                       justifyContent: "center",
                       cursor: "pointer",
                       flexShrink: 0,
+                      padding: 0,
+                      boxShadow: "none",
+                      transform: "none",
                     }}
                   >
                     <svg width="13" height="13" viewBox="0 0 13 13">
@@ -1409,6 +1412,9 @@ export default function ChatFrontend() {
                       transition: "opacity 0.2s",
                       flexShrink: 0,
                       opacity: query.trim() ? 1 : 0.35,
+                      padding: 0,
+                      boxShadow: "none",
+                      transform: "none",
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16">
