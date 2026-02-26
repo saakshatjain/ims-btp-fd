@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import nsutLogo from "../nsutlogo.png";
 
 const API_URL =
@@ -543,6 +544,7 @@ export default function ChatFrontend() {
   return (
     <>
       <Analytics />
+      <SpeedInsights />
       <style>{`
         input:focus, button:focus, form:focus-within {
           outline: none !important;
