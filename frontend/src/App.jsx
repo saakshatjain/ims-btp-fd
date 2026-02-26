@@ -1375,7 +1375,7 @@ export default function ChatFrontend() {
                     onClick={handleStop}
                     title="Stop"
                     style={{
-                      background: t.textPrimary,
+                      background: "#dc2626",
                       border: "none",
                       width: "36px",
                       height: "36px",
@@ -1385,12 +1385,12 @@ export default function ChatFrontend() {
                       justifyContent: "center",
                       cursor: "pointer",
                       flexShrink: 0,
-                      fontSize: "14px",
-                      color: t.bgMain,
-                      lineHeight: 1,
                     }}
                   >
-                    &#9632;
+                    {/* White filled square on red */}
+                    <svg width="13" height="13" viewBox="0 0 13 13">
+                      <rect x="0" y="0" width="13" height="13" rx="2" fill="white" />
+                    </svg>
                   </button>
                 ) : (
                   <button
@@ -1409,13 +1409,15 @@ export default function ChatFrontend() {
                       cursor: query.trim() ? "pointer" : "not-allowed",
                       transition: "all 0.2s",
                       flexShrink: 0,
-                      fontSize: "18px",
-                      color: query.trim() ? t.bgMain : t.textSecondary,
-                      lineHeight: 1,
-                      paddingBottom: "2px",
                     }}
                   >
-                    ↑
+                    {/* WhatsApp-style filled right-pointing triangle */}
+                    <svg width="16" height="16" viewBox="0 0 16 16">
+                      <polygon
+                        points="3,2 14,8 3,14"
+                        fill={query.trim() ? t.bgMain : t.textSecondary}
+                      />
+                    </svg>
                   </button>
                 )}
               </form>
@@ -1821,7 +1823,8 @@ export default function ChatFrontend() {
                 disabled={
                   feedbackLoading ||
                   !feedbackDraft.answer ||
-                  !feedbackDraft.source
+                  !feedbackDraft.source ||
+                  feedbackDraft.satisfied === null
                 }
                 style={{
                   background: t.textPrimary,
@@ -1832,14 +1835,16 @@ export default function ChatFrontend() {
                   cursor:
                     feedbackLoading ||
                       !feedbackDraft.answer ||
-                      !feedbackDraft.source
+                      !feedbackDraft.source ||
+                      feedbackDraft.satisfied === null
                       ? "not-allowed"
                       : "pointer",
                   fontSize: "13px",
                   opacity:
                     feedbackLoading ||
                       !feedbackDraft.answer ||
-                      !feedbackDraft.source
+                      !feedbackDraft.source ||
+                      feedbackDraft.satisfied === null
                       ? 0.5
                       : 1,
                 }}
