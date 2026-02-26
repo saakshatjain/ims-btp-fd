@@ -32,6 +32,7 @@ export default function ChatFrontend() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth > 768);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
 
   useEffect(() => {
     const handleResize = () => {
@@ -458,11 +459,16 @@ export default function ChatFrontend() {
       if (Array.isArray(sources) && sources.length > 0) {
         const seen = new Set();
         sources.forEach((src) => {
-          let link = src.source_link || src.link || "";
+          let link =
+            typeof src === "string" ? src : src.source_link || src.link || "";
           link = normalizeLink(link);
           if (link && !seen.has(link)) {
             seen.add(link);
-            normalized.push(link);
+            normalized.push({
+              link: link,
+              title: src.notice_title || src.title || "",
+              id: src.notice_id || src.id || "",
+            });
           }
         });
       }
@@ -565,6 +571,7 @@ export default function ChatFrontend() {
           background: t.bgApp,
           color: t.textPrimary,
           fontFamily: "system-ui, -apple-system, sans-serif",
+          overflow: "hidden",
         }}
       >
         {isMobile && isSidebarOpen && (
@@ -582,7 +589,7 @@ export default function ChatFrontend() {
         {/* Sidebar */}
         <div
           style={{
-            width: "280px",
+            width: isMobile ? "280px" : `${sidebarWidth}px`,
             background: t.bgSidebar,
             borderRight: `1px solid ${t.border}`,
             display: "flex",
@@ -593,36 +600,27 @@ export default function ChatFrontend() {
             height: "100%",
             zIndex: 50,
             transform: isSidebarOpen ? "translateX(0)" : "translateX(-100%)",
-            transition: "transform 0.3s ease, margin-left 0.3s ease",
-            marginLeft: !isMobile && !isSidebarOpen ? "-280px" : "0",
+            transition: isMobile ? "transform 0.3s ease" : "transform 0.3s ease, margin-left 0.3s ease, width 0s",
+            marginLeft: !isMobile && !isSidebarOpen ? `-${sidebarWidth}px` : "0",
           }}
         >
           <div
             style={{
               padding: "0 8px",
               marginBottom: "20px",
+              fontSize: "16px",
+              fontWeight: "600",
               display: "flex",
-              flexDirection: "column",
               alignItems: "center",
-              gap: "12px",
-              borderBottom: `1px solid ${t.border}`,
-              paddingBottom: "16px",
+              gap: "8px",
             }}
           >
             <img
               src={nsutLogo}
               alt="NSUT Logo"
-              style={{ width: "65%", objectFit: "contain" }}
+              style={{ width: 24, height: 24, objectFit: "contain" }}
             />
-            <div
-              style={{
-                fontSize: "16px",
-                fontWeight: "600",
-                letterSpacing: "1px",
-              }}
-            >
-              NSUT BOT
-            </div>
+            NSUT Bot
           </div>
 
           <button
@@ -752,6 +750,42 @@ export default function ChatFrontend() {
               <span style={{ fontSize: "16px" }}>⚙</span> Settings
             </button>
           </div>
+
+          {/* Drag Handle for resizing */}
+          {!isMobile && isSidebarOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                width: "4px",
+                height: "100%",
+                cursor: "col-resize",
+                zIndex: 100,
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const handleMouseMove = (moveEvent) => {
+                  let newWidth = moveEvent.clientX;
+                  if (newWidth < 100) {
+                    setIsSidebarOpen(false);
+                    window.removeEventListener("mousemove", handleMouseMove);
+                    window.removeEventListener("mouseup", handleMouseUp);
+                  } else {
+                    if (newWidth > 600) newWidth = 600;
+                    setSidebarWidth(newWidth);
+                    if (!isSidebarOpen) setIsSidebarOpen(true);
+                  }
+                };
+                const handleMouseUp = () => {
+                  window.removeEventListener("mousemove", handleMouseMove);
+                  window.removeEventListener("mouseup", handleMouseUp);
+                };
+                window.addEventListener("mousemove", handleMouseMove);
+                window.addEventListener("mouseup", handleMouseUp);
+              }}
+            />
+          )}
         </div>
 
         {/* Main View */}
@@ -762,7 +796,8 @@ export default function ChatFrontend() {
             flexDirection: "column",
             background: t.bgMain,
             position: "relative",
-            width: isMobile ? "100vw" : "auto",
+            width: "100%",
+            overflowX: "hidden",
           }}
         >
           {/* Top Bar for Sidebar Toggle */}
@@ -879,20 +914,73 @@ export default function ChatFrontend() {
                       }}
                     >
                       {m.role === "bot" ? (
-                        <img
-                          src={nsutLogo}
-                          alt="Bot"
+                        <div
                           style={{
                             width: 30,
                             height: 30,
-                            flexShrink: 0,
-                            objectFit: "contain",
-                            marginTop: "4px",
                             borderRadius: "50%",
+                            background: t.textPrimary,
+                            color: t.bgMain,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            marginTop: "4px",
                           }}
-                        />
+                        >
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 8V4H8"></path>
+                            <rect
+                              width="16"
+                              height="12"
+                              x="4"
+                              y="8"
+                              rx="2"
+                            ></rect>
+                            <path d="M2 14h2"></path>
+                            <path d="M20 14h2"></path>
+                            <path d="M15 13v2"></path>
+                            <path d="M9 13v2"></path>
+                          </svg>
+                        </div>
                       ) : (
-                        <div className="user-avatar">U</div>
+                        <div
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: "50%",
+                            background: t.border,
+                            color: t.textPrimary,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            marginTop: "4px",
+                          }}
+                        >
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                          </svg>
+                        </div>
                       )}
 
                       <div
@@ -1007,18 +1095,30 @@ export default function ChatFrontend() {
                               gap: "8px",
                             }}
                           >
-                            {m.links.map((link, idx) => {
-                              let title = shortenUrl(link);
-                              try {
-                                const u = new URL(link);
-                                const dl = u.searchParams.get("download");
-                                if (dl) title = dl;
-                                else {
-                                  let parts = u.pathname.split("/");
-                                  if (parts[parts.length - 1])
-                                    title = parts[parts.length - 1];
-                                }
-                              } catch (e) {}
+                            {m.links.map((srcItem, idx) => {
+                              let link =
+                                typeof srcItem === "string"
+                                  ? srcItem
+                                  : srcItem.link || "";
+                              let finalTitle =
+                                typeof srcItem === "string"
+                                  ? ""
+                                  : srcItem.title || srcItem.id || "";
+
+                              if (!finalTitle) {
+                                finalTitle = shortenUrl(link);
+                                try {
+                                  const u = new URL(link);
+                                  const dl = u.searchParams.get("download");
+                                  if (dl) finalTitle = dl;
+                                  else {
+                                    let parts = u.pathname.split("/");
+                                    if (parts[parts.length - 1])
+                                      finalTitle = parts[parts.length - 1];
+                                  }
+                                } catch (e) {}
+                              }
+
                               return (
                                 <div
                                   key={idx}
@@ -1045,9 +1145,9 @@ export default function ChatFrontend() {
                                       overflow: "hidden",
                                       textOverflow: "ellipsis",
                                     }}
-                                    title={title}
+                                    title={finalTitle}
                                   >
-                                    {title}
+                                    {finalTitle}
                                   </a>
                                   <button
                                     onClick={() => copyToClipboard(link)}
@@ -1170,6 +1270,7 @@ export default function ChatFrontend() {
               padding: "20px",
               maxWidth: "800px",
               width: "100%",
+              boxSizing: "border-box",
               margin: "0 auto",
             }}
           >
@@ -1250,18 +1351,17 @@ export default function ChatFrontend() {
                     }}
                   >
                     <svg
-                      width="18"
-                      height="18"
+                      width="16"
+                      height="16"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="2.5"
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      style={{ marginLeft: "-2px" }}
                     >
-                      <line x1="22" y1="2" x2="11" y2="13"></line>
-                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
                     </svg>
                   </button>
                 )}
@@ -1451,20 +1551,31 @@ export default function ChatFrontend() {
               }}
             >
               <span style={{ fontSize: "14px" }}>Recommendations</span>
-              <label
+              <div
+                onClick={() => setEnableRecommendations(!enableRecommendations)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
+                  width: 36,
+                  height: 20,
+                  borderRadius: 10,
+                  background: enableRecommendations ? t.textPrimary : t.border,
+                  position: "relative",
                   cursor: "pointer",
+                  transition: "background 0.3s",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={enableRecommendations}
-                  onChange={(e) => setEnableRecommendations(e.target.checked)}
-                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                <div
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: "50%",
+                    background: t.bgMain,
+                    position: "absolute",
+                    top: 2,
+                    left: enableRecommendations ? 18 : 2,
+                    transition: "left 0.3s",
+                  }}
                 />
-              </label>
+              </div>
             </div>
           </div>
         </div>
@@ -1588,28 +1699,61 @@ export default function ChatFrontend() {
               </div>
             </div>
 
-            <div style={{ marginBottom: "24px" }}>
+            <div
+              style={{
+                marginBottom: "24px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
               <label
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  gap: "10px",
                   fontSize: "13px",
                   cursor: "pointer",
                   userSelect: "none",
                 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setFeedbackDraft((p) => ({
+                    ...p,
+                    satisfied: p.satisfied === true ? null : true,
+                  }));
+                }}
               >
-                <input
-                  type="checkbox"
-                  checked={feedbackDraft.satisfied === true}
-                  onChange={(e) =>
-                    setFeedbackDraft((p) => ({
-                      ...p,
-                      satisfied: e.target.checked ? true : false,
-                    }))
-                  }
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
-                />
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    border: `1px solid ${feedbackDraft.satisfied === true ? t.textPrimary : t.textSecondary}`,
+                    background:
+                      feedbackDraft.satisfied === true
+                        ? t.textPrimary
+                        : "transparent",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "0.2s",
+                  }}
+                >
+                  {feedbackDraft.satisfied === true && (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={t.bgMain}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                  )}
+                </div>
                 I am satisfied with this response
               </label>
             </div>

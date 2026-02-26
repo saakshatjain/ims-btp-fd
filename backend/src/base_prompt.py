@@ -33,7 +33,7 @@ Return a single JSON object with this exact structure:
 {{
   "answer": "Your clear, plain-text answer here using \\n for formatting.",
   "sources": [
-    {{ "notice_id": "exact_id_from_context", "source_link": "exact_link_from_context" }}
+    {{ "notice_id": "exact_id_from_context", "notice_title": "exact_title_from_context", "source_link": "exact_link_from_context" }}
   ],
   "suggested_follow_up": [
     "Question 1",
