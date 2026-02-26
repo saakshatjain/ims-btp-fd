@@ -598,6 +598,7 @@ export default function ChatFrontend() {
             display: "flex",
             flexDirection: "column",
             overflow: "hidden", /* FIXED: Explicit boundary for Settings button */
+            boxSizing: "border-box",
             padding: "16px 12px",
             flexShrink: 0,
             position: isMobile ? "fixed" : "relative",
@@ -1074,7 +1075,7 @@ export default function ChatFrontend() {
                                     if (parts[parts.length - 1])
                                       finalTitle = parts[parts.length - 1];
                                   }
-                                } catch (e) {}
+                                } catch (e) { }
                               }
 
                               return (
@@ -1161,12 +1162,12 @@ export default function ChatFrontend() {
                                       cursor: "pointer",
                                     }}
                                     onMouseOver={(e) =>
-                                      (e.currentTarget.style.background =
-                                        t.hoverBg)
+                                    (e.currentTarget.style.background =
+                                      t.hoverBg)
                                     }
                                     onMouseOut={(e) =>
-                                      (e.currentTarget.style.background =
-                                        "transparent")
+                                    (e.currentTarget.style.background =
+                                      "transparent")
                                     }
                                     onClick={() => submit(sq)}
                                   >
@@ -1305,7 +1306,7 @@ export default function ChatFrontend() {
                   color: t.textSecondary,
                 }}
               >
-                IMS Chatbot can make mistakes. Verify important information.
+                NSUT Chatbot can make mistakes. Verify important information.
               </div>
             </div>
           </div>
@@ -1723,15 +1724,15 @@ export default function ChatFrontend() {
                   borderRadius: "6px",
                   cursor:
                     feedbackLoading ||
-                    !feedbackDraft.answer ||
-                    !feedbackDraft.source
+                      !feedbackDraft.answer ||
+                      !feedbackDraft.source
                       ? "not-allowed"
                       : "pointer",
                   fontSize: "13px",
                   opacity:
                     feedbackLoading ||
-                    !feedbackDraft.answer ||
-                    !feedbackDraft.source
+                      !feedbackDraft.answer ||
+                      !feedbackDraft.source
                       ? 0.5
                       : 1,
                 }}
