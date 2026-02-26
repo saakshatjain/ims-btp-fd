@@ -1165,7 +1165,7 @@ export default function ChatFrontend() {
                                     if (parts[parts.length - 1])
                                       finalTitle = parts[parts.length - 1];
                                   }
-                                } catch (e) {}
+                                } catch (e) { }
                               }
 
                               return (
@@ -1259,12 +1259,12 @@ export default function ChatFrontend() {
                                         cursor: "pointer",
                                       }}
                                       onMouseOver={(e) =>
-                                        (e.currentTarget.style.background =
-                                          t.hoverBg)
+                                      (e.currentTarget.style.background =
+                                        t.hoverBg)
                                       }
                                       onMouseOut={(e) =>
-                                        (e.currentTarget.style.background =
-                                          "transparent")
+                                      (e.currentTarget.style.background =
+                                        "transparent")
                                       }
                                       onClick={() =>
                                         isObject && sq.answer
@@ -1749,63 +1749,49 @@ export default function ChatFrontend() {
               </div>
             </div>
 
-            <div
-              style={{
-                marginBottom: "24px",
-                display: "flex",
-                justifyContent: "center",
-              }}
-            >
-              <label
+            <div style={{ marginBottom: "24px" }}>
+              <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
                   fontSize: "13px",
-                  cursor: "pointer",
-                  userSelect: "none",
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setFeedbackDraft((p) => ({
-                    ...p,
-                    satisfied: p.satisfied === true ? null : true,
-                  }));
+                  marginBottom: "12px",
+                  color: t.textSecondary,
+                  textAlign: "center"
                 }}
               >
-                <div
+                Are you satisfied with this response?
+              </div>
+              <div style={{ display: "flex", gap: "16px", justifyContent: "center" }}>
+                <button
+                  onClick={() => setFeedbackDraft((p) => ({ ...p, satisfied: true }))}
                   style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: 4,
-                    border: `1px solid ${feedbackDraft.satisfied === true ? t.textPrimary : t.textSecondary}`,
-                    background:
-                      feedbackDraft.satisfied === true
-                        ? t.textPrimary
-                        : "transparent",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "0.2s",
+                    padding: "6px 24px",
+                    fontSize: "13px",
+                    background: feedbackDraft.satisfied === true ? t.textPrimary : "transparent",
+                    color: feedbackDraft.satisfied === true ? t.bgMain : t.textPrimary,
+                    border: `1px solid ${feedbackDraft.satisfied === true ? t.textPrimary : t.border}`,
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
                   }}
                 >
-                  {feedbackDraft.satisfied === true && (
-                    <svg
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={t.bgMain}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  )}
-                </div>
-                I am satisfied with this response
-              </label>
+                  Yes
+                </button>
+                <button
+                  onClick={() => setFeedbackDraft((p) => ({ ...p, satisfied: false }))}
+                  style={{
+                    padding: "6px 24px",
+                    fontSize: "13px",
+                    background: feedbackDraft.satisfied === false ? t.textPrimary : "transparent",
+                    color: feedbackDraft.satisfied === false ? t.bgMain : t.textPrimary,
+                    border: `1px solid ${feedbackDraft.satisfied === false ? t.textPrimary : t.border}`,
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  No
+                </button>
+              </div>
             </div>
 
             <div
@@ -1842,15 +1828,15 @@ export default function ChatFrontend() {
                   borderRadius: "6px",
                   cursor:
                     feedbackLoading ||
-                    !feedbackDraft.answer ||
-                    !feedbackDraft.source
+                      !feedbackDraft.answer ||
+                      !feedbackDraft.source
                       ? "not-allowed"
                       : "pointer",
                   fontSize: "13px",
                   opacity:
                     feedbackLoading ||
-                    !feedbackDraft.answer ||
-                    !feedbackDraft.source
+                      !feedbackDraft.answer ||
+                      !feedbackDraft.source
                       ? 0.5
                       : 1,
                 }}
