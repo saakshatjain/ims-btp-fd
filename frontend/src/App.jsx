@@ -1,10 +1,31 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
+import nsutLogo from "../nsutlogo.png";
 
 const API_URL =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/query";
 const FEEDBACK_URL =
   import.meta.env.VITE_FEEDBACK_URL || "http://127.0.0.1:8000/api/feedback";
+
+const Star = ({ filled, onClick, t }) => (
+  <svg
+    onClick={onClick}
+    style={{
+      cursor: "pointer",
+      width: 32,
+      height: 32,
+      fill: filled ? "#f59e0b" : "transparent",
+      stroke: filled ? "#f59e0b" : t.textSecondary,
+      strokeWidth: 1.5,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      transition: "0.2s",
+    }}
+    viewBox="0 0 24 24"
+  >
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+  </svg>
+);
 
 export default function ChatFrontend() {
   const [query, setQuery] = useState("");
@@ -126,7 +147,12 @@ export default function ChatFrontend() {
     if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = "https://" + s;
     try {
       const u = new URL(s);
-      u.searchParams.delete("download");
+      if (!u.searchParams.has("download")) {
+        const pathParts = u.pathname.split("/");
+        let filename = pathParts[pathParts.length - 1] || "document.pdf";
+        if (!filename.toLowerCase().endsWith(".pdf")) filename += ".pdf";
+        u.searchParams.set("download", filename);
+      }
       return u.href;
     } catch (err) {
       return s.replace(/[",]+$/g, "");
@@ -532,23 +558,12 @@ export default function ChatFrontend() {
               gap: "8px",
             }}
           >
-            <div
-              style={{
-                width: 24,
-                height: 24,
-                background: t.textPrimary,
-                color: t.bgSidebar,
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "12px",
-                fontWeight: "900",
-              }}
-            >
-              I
-            </div>
-            IMS Chat
+            <img
+              src={nsutLogo}
+              alt="NSUT Logo"
+              style={{ width: 24, height: 24, objectFit: "contain" }}
+            />
+            NSUT Bot
           </div>
 
           <button
@@ -706,23 +721,16 @@ export default function ChatFrontend() {
                   opacity: 0.8,
                 }}
               >
-                <div
+                <img
+                  src={nsutLogo}
+                  alt="NSUT Logo"
                   style={{
                     width: 64,
                     height: 64,
-                    background: t.textPrimary,
-                    color: t.bgMain,
-                    borderRadius: "50%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: "32px",
-                    fontWeight: "900",
+                    objectFit: "contain",
                     marginBottom: 20,
                   }}
-                >
-                  I
-                </div>
+                />
                 <h2 style={{ fontSize: "24px", fontWeight: "600", margin: 0 }}>
                   How can I help you today?
                 </h2>
@@ -755,24 +763,18 @@ export default function ChatFrontend() {
                       }}
                     >
                       {m.role === "bot" && (
-                        <div
+                        <img
+                          src={nsutLogo}
+                          alt="Bot"
                           style={{
                             width: 30,
                             height: 30,
                             flexShrink: 0,
-                            background: t.textPrimary,
-                            color: t.bgMain,
-                            borderRadius: "50%",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "16px",
-                            fontWeight: "900",
+                            objectFit: "contain",
                             marginTop: "4px",
+                            borderRadius: "50%",
                           }}
-                        >
-                          I
-                        </div>
+                        />
                       )}
 
                       <div
@@ -887,45 +889,65 @@ export default function ChatFrontend() {
                               gap: "8px",
                             }}
                           >
-                            {m.links.map((link, idx) => (
-                              <div
-                                key={idx}
-                                style={{
-                                  display: "flex",
-                                  border: `1px solid ${t.border}`,
-                                  borderRadius: "6px",
-                                  overflow: "hidden",
-                                  background: t.bgSidebar,
-                                }}
-                              >
-                                <a
-                                  href={link}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                            {m.links.map((link, idx) => {
+                              let title = shortenUrl(link);
+                              try {
+                                const u = new URL(link);
+                                const dl = u.searchParams.get("download");
+                                if (dl) title = dl;
+                                else {
+                                  let parts = u.pathname.split("/");
+                                  if (parts[parts.length - 1])
+                                    title = parts[parts.length - 1];
+                                }
+                              } catch (e) {}
+                              return (
+                                <div
+                                  key={idx}
                                   style={{
-                                    padding: "8px 12px",
-                                    fontSize: "12px",
-                                    color: t.textPrimary,
-                                    textDecoration: "none",
+                                    display: "flex",
+                                    border: `1px solid ${t.border}`,
+                                    borderRadius: "6px",
+                                    overflow: "hidden",
+                                    background: t.bgSidebar,
+                                    maxWidth: "100%",
                                   }}
                                 >
-                                  {shortenUrl(link)}
-                                </a>
-                                <button
-                                  onClick={() => copyToClipboard(link)}
-                                  style={{
-                                    border: "none",
-                                    borderLeft: `1px solid ${t.border}`,
-                                    background: "transparent",
-                                    padding: "0 10px",
-                                    color: t.textSecondary,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  {copiedLink === link ? "✓" : "❐"}
-                                </button>
-                              </div>
-                            ))}
+                                  <a
+                                    href={link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      padding: "8px 12px",
+                                      fontSize: "12px",
+                                      color: t.textPrimary,
+                                      textDecoration: "none",
+                                      flex: 1,
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                    title={title}
+                                  >
+                                    {title}
+                                  </a>
+                                  <button
+                                    onClick={() => copyToClipboard(link)}
+                                    style={{
+                                      border: "none",
+                                      borderLeft: `1px solid ${t.border}`,
+                                      background: "transparent",
+                                      padding: "0 10px",
+                                      color: t.textSecondary,
+                                      cursor: "pointer",
+                                    }}
+                                    title="Copy Link"
+                                  >
+                                    {copiedLink === link ? "✓" : "❐"}
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 
@@ -992,24 +1014,18 @@ export default function ChatFrontend() {
                       width: "100%",
                     }}
                   >
-                    <div
+                    <img
+                      src={nsutLogo}
+                      alt="Bot"
                       style={{
                         width: 30,
                         height: 30,
                         flexShrink: 0,
-                        background: t.textPrimary,
-                        color: t.bgMain,
-                        borderRadius: "50%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: "16px",
-                        fontWeight: "900",
+                        objectFit: "contain",
                         marginTop: "4px",
+                        borderRadius: "50%",
                       }}
-                    >
-                      I
-                    </div>
+                    />
                     <div
                       style={{
                         padding: "4px 0",
@@ -1086,14 +1102,14 @@ export default function ChatFrontend() {
                       cursor: "pointer",
                     }}
                   >
-                    <div
-                      style={{
-                        width: "10px",
-                        height: "10px",
-                        background: t.bgMain,
-                      }}
-                    />{" "}
-                    {/* Square stop icon */}
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
+                    </svg>
                   </button>
                 ) : (
                   <button
@@ -1116,18 +1132,18 @@ export default function ChatFrontend() {
                     }}
                   >
                     <svg
-                      width="16"
-                      height="16"
+                      width="18"
+                      height="18"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ marginLeft: "-2px" }}
                     >
-                      <path
-                        d="M5 12h14M12 5l7 7-7 7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                      <line x1="22" y1="2" x2="11" y2="13"></line>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                     </svg>
                   </button>
                 )}
@@ -1364,81 +1380,109 @@ export default function ChatFrontend() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 style={{ margin: "0 0 16px 0", fontSize: "18px" }}>
-              Provide Feedback
+            <h3
+              style={{
+                margin: "0 0 20px 0",
+                fontSize: "20px",
+                fontWeight: "600",
+                textAlign: "center",
+              }}
+            >
+              How was the response?
             </h3>
 
-            <div style={{ marginBottom: "16px" }}>
-              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
-                Answer Quality (1-5)
+            <div style={{ marginBottom: "20px" }}>
+              <div
+                style={{
+                  fontSize: "14px",
+                  marginBottom: "12px",
+                  color: t.textSecondary,
+                  textAlign: "center",
+                  fontWeight: "500",
+                }}
+              >
+                Answer Quality
               </div>
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  justifyContent: "center",
+                }}
+              >
                 {[1, 2, 3, 4, 5].map((n) => (
-                  <button
+                  <Star
                     key={n}
+                    t={t}
+                    filled={feedbackDraft.answer >= n}
                     onClick={() =>
                       setFeedbackDraft((p) => ({ ...p, answer: n }))
                     }
-                    style={{
-                      flex: 1,
-                      padding: "8px",
-                      borderRadius: "6px",
-                      background:
-                        feedbackDraft.answer === n ? t.textPrimary : t.inputBg,
-                      color:
-                        feedbackDraft.answer === n ? t.bgMain : t.textPrimary,
-                      border: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
-                Source Relevance (1-5)
-              </div>
-              <div style={{ display: "flex", gap: "8px" }}>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() =>
-                      setFeedbackDraft((p) => ({ ...p, source: n }))
-                    }
-                    style={{
-                      flex: 1,
-                      padding: "8px",
-                      borderRadius: "6px",
-                      background:
-                        feedbackDraft.source === n ? t.textPrimary : t.inputBg,
-                      color:
-                        feedbackDraft.source === n ? t.bgMain : t.textPrimary,
-                      border: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {n}
-                  </button>
+                  />
                 ))}
               </div>
             </div>
 
             <div style={{ marginBottom: "24px" }}>
-              <div style={{ fontSize: "13px", marginBottom: "8px" }}>
-                Satisfied?
+              <div
+                style={{
+                  fontSize: "14px",
+                  marginBottom: "12px",
+                  color: t.textSecondary,
+                  textAlign: "center",
+                  fontWeight: "500",
+                }}
+              >
+                Source Relevance
               </div>
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  justifyContent: "center",
+                }}
+              >
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Star
+                    key={n}
+                    t={t}
+                    filled={feedbackDraft.source >= n}
+                    onClick={() =>
+                      setFeedbackDraft((p) => ({ ...p, source: n }))
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "32px" }}>
+              <div
+                style={{
+                  fontSize: "14px",
+                  marginBottom: "12px",
+                  color: t.textSecondary,
+                  textAlign: "center",
+                  fontWeight: "500",
+                }}
+              >
+                Did this fully resolve your question?
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  justifyContent: "center",
+                }}
+              >
                 <button
                   onClick={() =>
                     setFeedbackDraft((p) => ({ ...p, satisfied: true }))
                   }
                   style={{
                     flex: 1,
-                    padding: "8px",
-                    borderRadius: "6px",
+                    maxWidth: "120px",
+                    padding: "10px",
+                    borderRadius: "8px",
                     background:
                       feedbackDraft.satisfied === true
                         ? t.textPrimary
@@ -1449,8 +1493,27 @@ export default function ChatFrontend() {
                         : t.textPrimary,
                     border: "none",
                     cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    transition: "0.2s",
                   }}
                 >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                  </svg>
                   Yes
                 </button>
                 <button
@@ -1459,8 +1522,9 @@ export default function ChatFrontend() {
                   }
                   style={{
                     flex: 1,
-                    padding: "8px",
-                    borderRadius: "6px",
+                    maxWidth: "120px",
+                    padding: "10px",
+                    borderRadius: "8px",
                     background:
                       feedbackDraft.satisfied === false
                         ? t.textPrimary
@@ -1471,8 +1535,27 @@ export default function ChatFrontend() {
                         : t.textPrimary,
                     border: "none",
                     cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: "500",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    transition: "0.2s",
                   }}
                 >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+                  </svg>
                   No
                 </button>
               </div>
