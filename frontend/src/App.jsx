@@ -10,6 +10,11 @@ export default function ChatFrontend() {
   const containerRef = useRef(null);
   const [copiedLink, setCopiedLink] = useState(null);
 
+  /* ---------------------- SETTINGS STATE ---------------------- */
+  const [deepSearch, setDeepSearch] = useState(false);
+  const [enableRecommendations, setEnableRecommendations] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+
   /* ---------------------- FEEDBACK STATE ---------------------- */
   const [feedbackOpenFor, setFeedbackOpenFor] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState({
@@ -66,13 +71,7 @@ export default function ChatFrontend() {
     if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = "https://" + s;
     try {
       const u = new URL(s);
-      if (u.searchParams.has("download") && !u.searchParams.get("download")) {
-        u.searchParams.set("download", "source.pdf");
-      }
-      if (u.pathname && /\/download\/?$/.test(u.pathname)) {
-        if (!u.pathname.endsWith("/")) u.pathname += "/";
-        u.pathname += "source.pdf";
-      }
+      u.searchParams.delete("download");
       return u.href;
     } catch (err) {
       return s.replace(/[",]+$/g, "");
@@ -194,7 +193,7 @@ export default function ChatFrontend() {
       const resp = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({ query: trimmed, deep_search: deepSearch }),
       });
 
       if (!resp.ok) throw new Error("Backend error");
@@ -225,7 +224,8 @@ export default function ChatFrontend() {
         const seen = new Set();
         sources.forEach((src) => {
           // Handle both formats: {source_link: "..."} or {link: "..."}
-          const link = src.source_link || src.link || "";
+          let link = src.source_link || src.link || "";
+          link = normalizeLink(link);
           if (link && !seen.has(link)) {
             seen.add(link);
             normalized.push(link);
@@ -301,10 +301,38 @@ export default function ChatFrontend() {
           <div style={styles.header}>
             <span style={{ color: "#3b82f6" }}>IMS</span> Chatbot
           </div>
-          <button style={styles.clearBtn} onClick={() => setMessages([])}>
-            Clear Chat
-          </button>
+          <div style={styles.headerControls}>
+            <button style={styles.settingsBtn} onClick={() => setShowSettings(!showSettings)}>
+              {showSettings ? "Close Settings" : "⚙ Settings"}
+            </button>
+            <button style={styles.clearBtn} onClick={() => setMessages([])}>
+              Clear Chat
+            </button>
+          </div>
         </header>
+
+        {showSettings && (
+          <div style={styles.settingsPanel}>
+            <label style={styles.settingLabel}>
+              <input
+                type="checkbox"
+                checked={deepSearch}
+                onChange={(e) => setDeepSearch(e.target.checked)}
+                style={styles.checkbox}
+              />
+              Deep Search <span style={styles.settingHint}>(Takes longer but finds more context and solves better)</span>
+            </label>
+            <label style={styles.settingLabel}>
+              <input
+                type="checkbox"
+                checked={enableRecommendations}
+                onChange={(e) => setEnableRecommendations(e.target.checked)}
+                style={styles.checkbox}
+              />
+              Enable Recommendations <span style={styles.settingHint}>(Shows suggested follow-up questions)</span>
+            </label>
+          </div>
+        )}
 
         <div ref={containerRef} style={styles.chatArea}>
           {messages.length === 0 && (
@@ -392,7 +420,7 @@ export default function ChatFrontend() {
                 )}
 
                 {/* Suggested Follow-ups */}
-                {m.suggestedFollowUp && m.suggestedFollowUp.length > 0 && (
+                {enableRecommendations && m.suggestedFollowUp && m.suggestedFollowUp.length > 0 && (
                   <div style={styles.followUpBlock}>
                     <div style={styles.followUpTitle}>Suggested Questions:</div>
                     <div style={styles.followUpGrid}>
@@ -592,6 +620,48 @@ const styles = {
     fontSize: "12px",
     cursor: "pointer",
     transition: "all 0.2s",
+  },
+  headerControls: {
+    display: "flex",
+    gap: "10px",
+    alignItems: "center",
+  },
+  settingsBtn: {
+    background: "rgba(59, 130, 246, 0.1)",
+    border: "1px solid rgba(59, 130, 246, 0.3)",
+    color: "#60a5fa",
+    padding: "6px 12px",
+    borderRadius: "6px",
+    fontSize: "12px",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  settingsPanel: {
+    background: "rgba(15, 23, 42, 0.9)",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    padding: "16px 24px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    fontSize: "13px",
+  },
+  settingLabel: {
+    display: "flex",
+    alignItems: "center",
+    cursor: "pointer",
+    color: "#e2e8f0",
+  },
+  checkbox: {
+    marginRight: "10px",
+    cursor: "pointer",
+    width: "16px",
+    height: "16px",
+    accentColor: "#3b82f6",
+  },
+  settingHint: {
+    marginLeft: "8px",
+    fontSize: "11px",
+    color: "#94a3b8",
   },
 
   /* Chat Area */

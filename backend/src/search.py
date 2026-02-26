@@ -260,60 +260,65 @@ class RAGSearch:
         return build_base_prompt(context_text, query)
 
     def _parse_sources_from_response(self, response: str) -> dict:
+        def extract_json_objects(text):
+            objects = []
+            depth = 0
+            start = -1
+            for i, char in enumerate(text):
+                if char == '{':
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0 and start != -1:
+                        objects.append(text[start:i+1])
+            return objects
+
         try:
             parsed = json.loads(response)
-
-            answer = parsed.get("answer", "").strip()
-            sources = parsed.get("sources", [])
-            suggested_follow_up = parsed.get("suggested_follow_up", [])
-
-            if not isinstance(sources, list):
-                sources = []
-            if not isinstance(suggested_follow_up, list):
-                suggested_follow_up = []
-
-            lower_answer = answer.lower()
-            if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
-                sources = []
-                suggested_follow_up = []
-
-            return {
-                "answer": answer,
-                "sources": sources if sources else [],
-                "suggested_follow_up": suggested_follow_up
-            }
         except json.JSONDecodeError:
-            json_match = re.search(r"\{[\s\S]*\}", response)
-            if json_match:
+            extracted = extract_json_objects(response)
+            parsed = None
+            # Iterate backwards to get the final generated JSON block
+            for block in reversed(extracted):
                 try:
-                    parsed = json.loads(json_match.group(0))
-                    answer = parsed.get("answer", response).strip()
-                    sources = parsed.get("sources", [])
-                    suggested_follow_up = parsed.get("suggested_follow_up", [])
-                    
-                    if not isinstance(sources, list):
-                        sources = []
-                    if not isinstance(suggested_follow_up, list):
-                        suggested_follow_up = []
-
-                    lower_answer = answer.lower()
-                    if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
-                        sources = []
-                        suggested_follow_up = []
-                        
-                    return {
-                        "answer": answer,
-                        "sources": sources if sources else [],
-                        "suggested_follow_up": suggested_follow_up
-                    }
+                    parsed = json.loads(block)
+                    break
                 except json.JSONDecodeError:
-                    pass
+                    continue
+            
+            if not parsed:
+                return {
+                    "answer": response,
+                    "sources": [],
+                    "suggested_follow_up": []
+                }
 
-            return {
-                "answer": response,
-                "sources": [],
-                "suggested_follow_up": []
-            }
+        answer = parsed.get("answer", "")
+        if isinstance(answer, list):
+            answer = " ".join(str(a) for a in answer)
+        else:
+            answer = str(answer).strip()
+
+        sources = parsed.get("sources", [])
+        suggested_follow_up = parsed.get("suggested_follow_up", [])
+
+        if not isinstance(sources, list):
+            sources = []
+        if not isinstance(suggested_follow_up, list):
+            suggested_follow_up = []
+
+        lower_answer = answer.lower()
+        if "i don't know" in lower_answer or "don't know" in lower_answer or "no specific question" in lower_answer:
+            sources = []
+            suggested_follow_up = []
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "suggested_follow_up": suggested_follow_up
+        }
 
     # ---------------------------------------------------------
     # CALL LLM WITH ROTATION (Adapted for Groq)
