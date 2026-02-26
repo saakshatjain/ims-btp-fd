@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/query";
 const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || "http://127.0.0.1:8000/api/feedback";
@@ -283,7 +284,9 @@ export default function ChatFrontend() {
   /* ---------------------- Render ---------------------- */
 
   return (
-    <div style={styles.page}>
+    <>
+      <Analytics />
+      <div style={styles.page}>
       <style>
         {`
           @keyframes slideIn {
@@ -553,7 +556,8 @@ export default function ChatFrontend() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
