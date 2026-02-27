@@ -513,6 +513,9 @@ export default function ChatFrontend() {
         signal: controller.signal,
       });
 
+      if (resp.status === 429) {
+        throw new Error("RATE_LIMITED");
+      }
       if (!resp.ok) throw new Error("Backend error");
 
       // Response headers received; body is downloading/parsing
@@ -588,7 +591,10 @@ export default function ChatFrontend() {
       const errMsgs = {
         id: Date.now() + "_err",
         role: "bot",
-        text: "[ERROR] Could not generate response. Please try again.",
+        text:
+          err.message === "RATE_LIMITED"
+            ? "⏳ You're sending messages too quickly. Please wait a minute before trying again."
+            : "[ERROR] Could not generate response. Please try again.",
         links: [],
         showSources: false,
         ts: new Date().toISOString(),

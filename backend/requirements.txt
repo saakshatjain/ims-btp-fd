@@ -18,3 +18,4 @@ pydantic
 python-multipart
 pydantic-settings
 langchain-groq
+slowapi

@@ -1,10 +1,11 @@
 import os
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
+from app import limiter
 from src.search import RAGSearch
 
 # 1. Load Environment Variables
@@ -51,7 +52,8 @@ def home():
     return {"message": "RAG backend API is live and ready!"}
 
 @router.post("/query")
-def query_rag(payload: QueryRequest):
+@limiter.limit("10/minute")
+def query_rag(request: Request, payload: QueryRequest):
     """
     POST /api/query
     """
@@ -83,7 +85,8 @@ def query_rag(payload: QueryRequest):
         return {"answer": "[ERROR] An internal error occurred.", "sources": []}
 
 @router.post("/feedback")
-def submit_feedback(feedback: FeedbackRequest):
+@limiter.limit("20/minute")
+def submit_feedback(request: Request, feedback: FeedbackRequest):
     """
     POST /api/feedback
     Inserts user feedback into Supabase 'answer_feedback' table.
