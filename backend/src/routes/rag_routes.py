@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-from app import limiter
+from extensions import limiter
 from src.search import RAGSearch
 
 # 1. Load Environment Variables
