@@ -18,6 +18,7 @@
 
 - [Overview](#overview)
 - [System Architecture](#system-architecture)
+- [Pipeline Architecture](#pipeline-architecture)
 - [How It Works — End-to-End Flow](#how-it-works--end-to-end-flow)
 - [Tech Stack](#tech-stack)
 - [Retrieval Service Communication](#retrieval-service-communication)
@@ -71,6 +72,38 @@ Instead of manually browsing through hundreds of PDFs on the university website,
 │  │  Table: answer_feedback                                      │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Pipeline Architecture
+
+The following diagram illustrates the two core pipelines — **Ingestion** (how notices are processed and indexed) and **Retrieval** (how user queries are answered):
+
+```mermaid
+flowchart TB
+    subgraph Ingestion["🔄 Ingestion Pipeline"]
+        direction TB
+        A(["⏰ Start: Cron Scheduler"]) --> B["📥 Fetch Notices<br/>(IMS)"]
+        B --> C{"Is Scanned?"}
+        C -- Yes --> D["🔍 Apply EasyOCR"]
+        C -- No --> E["📄 Hybrid Parse<br/>(Text & Tables)"]
+        D -.-> E
+        E --> F["✂️ Three-Tier<br/>Semantic Chunking"]
+        F --> G["📊 Hybrid Indexing<br/>(Dense + Sparse)"]
+        G --> H[("🗄️ Supabase<br/>Vector DB")]
+    end
+
+    subgraph Retrieval["🔎 Retrieval Pipeline"]
+        direction TB
+        I(["💬 User Query"]) --> J["🔤 Query Encoding"]
+        J --> K["🔀 Hybrid Search"]
+        K --> L["🎯 Context Re-Ranking<br/>(Cohere)"]
+        L --> M["🤖 LLM Generation<br/>(Groq)"]
+        M --> N["📝 Response + Citation"]
+    end
+
+    H -. "Retrieve Context" .-> K
 ```
 
 ---
